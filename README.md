@@ -68,7 +68,7 @@ Record-LiveIPTV -Config myprovider -Channel bbc_one -DurationMinutes 90
 # Skip remux (keep as .ts)
 Record-LiveIPTV -Config myprovider -Channel bbc_one -DurationMinutes 90 -NoRemux
 
-# Wait until a specific time, then record
+# Wait until a specific time, then record (-StartAt format: yyyy-MM-dd:HH-mm, your local time)
 Record-LiveIPTV -Config myprovider -Channel bbc_one -DurationMinutes 90 -StartAt "2025-06-01:20-00"
 
 # Schedule via Windows Task Scheduler instead of waiting in the terminal
@@ -82,7 +82,7 @@ Output files are saved to `~\Videos\` as `channelname_YYYYMMDD_HHmm.ts` (or `.mk
 
 ### Record a catch-up stream
 
-Catch-up records a past broadcast by its original air time (local time).
+Catch-up records a past broadcast by its original air time. `-StartAt` uses your local time (format: `yyyy-MM-dd:HH-mm`) and is converted to the provider's timezone automatically.
 
 ```powershell
 # Single channel
