@@ -25,6 +25,15 @@ $Global:IPTVConfigs = @{
         #   "path"  -> BaseUrl/timeshift/username/password/SECS/TIME/ID.ts
         CatchupFormatStyle = "query"
 
+        # The timezone the provider uses for catch-up start times.
+        # -StartAt is entered in your local time and converted to this timezone for the URL.
+        # Use a Windows timezone ID — run [System.TimeZoneInfo]::GetSystemTimeZones() to list them.
+        # Common values:
+        #   "Central European Standard Time"  (CET/CEST, UTC+1/+2)
+        #   "UTC"
+        #   "AUS Eastern Standard Time"       (AEST/AEDT, UTC+10/+11)
+        CatchupTimezone = "Central European Standard Time"
+
         # Map of friendly channel names to stream IDs from your provider
         ChannelMap = @{
             "channel_name_1" = "stream_id_1"

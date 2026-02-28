@@ -407,9 +407,9 @@ function Record-CatchupIPTV {
         return
     }
 
-    $centralEuropeanZone = [System.TimeZoneInfo]::FindSystemTimeZoneById("Central European Standard Time")
+    $providerZone = [System.TimeZoneInfo]::FindSystemTimeZoneById($conf.CatchupTimezone)
     $utcTime = $startTime.ToUniversalTime()
-    $convertedTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($utcTime, $centralEuropeanZone)
+    $convertedTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($utcTime, $providerZone)
     $encodedStart = $convertedTime.ToString("yyyy-MM-dd:HH-mm")
 
     $outputFolder = Join-Path $HOME "Videos"

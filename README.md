@@ -40,11 +40,14 @@ Each provider is a named entry in `$Global:IPTVConfigs`. The key is what you pas
 | `CatchupUrl` | Timeshift/catch-up endpoint URL |
 | `AddTsSuffix` | Append `.ts` to live stream URLs (`$true`/`$false`) |
 | `CatchupFormatStyle` | URL format for catch-up: `"query"` or `"path"` (see below) |
+| `CatchupTimezone` | Windows timezone ID for the provider's catch-up timestamps (see below) |
 | `ChannelMap` | Hashtable mapping friendly names to provider stream IDs |
 
 **CatchupFormatStyle values:**
 - `"query"` — `CatchupUrl?username=...&password=...&stream=ID&start=TIME&duration=SECS`
 - `"path"` — `BaseUrl/timeshift/username/password/SECS/TIME/ID.ts`
+
+**CatchupTimezone:** The timezone the provider uses to index catch-up content. `-StartAt` is entered in your local time and converted to this timezone for the URL. DST is handled automatically for both your local timezone and the provider's. Use a Windows timezone ID — run `[System.TimeZoneInfo]::GetSystemTimeZones()` to list all available IDs. Common values: `"Central European Standard Time"` (CET/CEST), `"UTC"`, `"AUS Eastern Standard Time"` (AEST/AEDT).
 
 ## Usage
 
