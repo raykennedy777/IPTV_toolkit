@@ -5,11 +5,12 @@
 # Directory where recordings are saved
 OUTPUT_DIR="$HOME/recordings"
 
-# Optional: override the ffmpeg binary used by the script.
-# Useful on Synology DSM where the newer ffmpeg7 package installs as "ffmpeg7"
-# while the system "ffmpeg" is an older version used by other packages.
-# Defaults to "ffmpeg" if not set.
+# Optional: override the ffmpeg and ffprobe binaries used by the script.
+# Useful on Synology DSM where the newer ffmpeg7 package installs as "ffmpeg7"/"ffprobe7"
+# while the system "ffmpeg"/"ffprobe" are older versions used by other packages.
+# Defaults to "ffmpeg" / "ffprobe" if not set.
 #FFMPEG_BIN="ffmpeg7"
+#FFPROBE_BIN="ffprobe7"
 
 # Each provider is defined as a config_<name>() function.
 # Pass the name with -config (e.g. -config myprovider).

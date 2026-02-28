@@ -10,8 +10,9 @@ CONFIG_FILE="$SCRIPT_DIR/Settings/iptv_configs.sh"
 # shellcheck source=Settings/iptv_configs.sh
 source "$CONFIG_FILE"
 
-# Default to plain ffmpeg; config can override (e.g. FFMPEG_BIN=ffmpeg7)
+# Default to plain ffmpeg/ffprobe; config can override
 FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
+FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
 
 # Logging setup — write logs to $SCRIPT_DIR/logs with timestamps
 LOG_DIR="${SCRIPT_DIR}/logs"
@@ -154,6 +155,22 @@ merge_ts_segments() {
 # Populated by the caller-supplied build_retry_func before each retry
 _RETRY_FFMPEG_ARGS=()
 
+# Probe media file to get its content duration in seconds (integer)
+measure_duration() {
+    local file="$1"
+    # Prefer video stream duration; fall back to format duration
+    local dur
+    dur="$("$FFPROBE_BIN" -v error -select_streams v:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null)"
+    if [[ -z "$dur" || "$dur" == "N/A" ]]; then
+        dur="$("$FFPROBE_BIN" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null)"
+    fi
+    if [[ -z "$dur" || "$dur" == "N/A" ]]; then
+        echo 0
+    else
+        awk "BEGIN {printf \"%d\", ${dur}+0}"
+    fi
+}
+
 ffmpeg_with_retry() {
     # Usage: ffmpeg_with_retry <output_path> <total_secs> <build_retry_func> <initial_ffmpeg_args...>
     local output_path="$1"
@@ -164,89 +181,90 @@ ffmpeg_with_retry() {
 
     log "INFO" "Starting recording: $output_path (target: ${total_secs}s)"
 
-    local start_epoch
-    start_epoch="$(date +%s)"
-
-    # Run initial ffmpeg
-    log "INFO" "Running initial ffmpeg..."
-    if ! "$FFMPEG_BIN" "${initial_args[@]}"; then
-        log "ERROR" "initial ffmpeg failed (exit $?)."
-        return 1
-    fi
-
-    local elapsed=$(( $(date +%s) - start_epoch ))
-    log "INFO" "Initial run finished. Elapsed: ${elapsed}s, target: ${total_secs}s"
-
-    local total_i="$total_secs"
-
-    if (( elapsed >= total_i - 2 )); then
-        log "SUCCESS" "Target duration reached (within 2s tolerance)."
-        return 0
-    fi
-
-    log "WARNING" "Shortfall of $(( total_i - elapsed ))s — will retry."
-
-    local dir base
-    dir="$(dirname "$output_path")"
-    base="$(basename "${output_path%.ts}")"
-
     local -a segments=("$output_path")
+    local accumulated=0
+    local retry=0
     local max_retries=5
 
-    for (( retry=1; retry<=max_retries; retry++ )); do
-        local remaining=$(( total_i - elapsed ))
-        if (( remaining < 10 )); then
-            log "INFO" "Only ${remaining}s remaining (<10s threshold) — stopping retries."
+    while (( retry < max_retries )); do
+        local remaining=$(( total_secs - accumulated ))
+        if (( remaining <= 0 )); then
+            log "SUCCESS" "Target already reached."
             break
         fi
 
-        log "INFO" ""
-        log "INFO" "RETRY $retry/$max_retries — need ${remaining}s more"
-        log "INFO" "Cumulative elapsed so far: ${elapsed}s"
+        local -a args
+        local seg_file=""
 
-        local seg_path="$dir/${base}_seg${retry}.ts"
-        "$build_retry_func" "$remaining" "$seg_path" "$elapsed"
-        log "INFO" "Retry command: $FFMPEG_BIN ${_RETRY_FFMPEG_ARGS[*]}"
-
-        local seg_start seg_elapsed
-        seg_start="$(date +%s)"
-        if ! "$FFMPEG_BIN" "${_RETRY_FFMPEG_ARGS[@]}"; then
-            log "ERROR" "retry ffmpeg failed (exit $?)."
-            break
-        fi
-        seg_elapsed=$(( $(date +%s) - seg_start ))
-        log "INFO" "Retry run completed in ${seg_elapsed}s"
-
-        # Check segment file exists and non-empty
-        if [[ ! -s "$seg_path" ]]; then
-            log "ERROR" "Retry produced empty file ($seg_path) — stopping retries."
-            rm -f "$seg_path"
-            break
+        if (( retry == 0 )); then
+            args=("${initial_args[@]}")
+            seg_file="$output_path"
+        else
+            local dir base
+            dir="$(dirname "$output_path")"
+            base="$(basename "${output_path%.ts}")"
+            seg_file="${dir}/${base}_seg${retry}.ts"
+            "$build_retry_func" "$remaining" "$seg_file" "$accumulated"
+            args=("${_RETRY_FFMPEG_ARGS[@]}")
         fi
 
-        local seg_size
-        seg_size="$(du -h "$seg_path" 2>/dev/null | cut -f1 || echo "?")"
-        log "INFO" "Added segment ${seg_path} (size: ${seg_size})"
-        segments+=("$seg_path")
-        elapsed=$(( elapsed + seg_elapsed ))
-        log "INFO" "Cumulative elapsed after retry: ${elapsed}s"
-
-        if (( elapsed >= total_i - 2 )); then
-            log "SUCCESS" "Target duration reached (within 2s tolerance) after $retry retries."
-            break
+        log "INFO" "Attempt $((retry+1)): requesting ${remaining}s of content"
+        if ! "$FFMPEG_BIN" "${args[@]}"; then
+            log "ERROR" "ffmpeg failed (exit $?)."
+            ((retry++))
+            continue
         fi
+
+        # Verify segment file exists and is non-empty
+        if [[ ! -s "$seg_file" ]]; then
+            log "ERROR" "Segment file empty or missing — treating as failure."
+            ((retry++))
+            continue
+        fi
+
+        local dur_secs
+        dur_secs="$(measure_duration "$seg_file")"
+        log "INFO" "Measured duration: ${dur_secs}s (requested: ${remaining}s)"
+
+        if (( dur_secs > 0 )); then
+            accumulated=$(( accumulated + dur_secs ))
+            if (( retry > 0 )); then
+                segments+=("$seg_file")
+            fi
+            log "INFO" "Segment added. Accumulated: ${accumulated}s / ${total_secs}s"
+
+            if (( accumulated >= total_secs - 2 )); then
+                log "SUCCESS" "Target reached within tolerance."
+                break
+            fi
+        else
+            # Probe failed — assume the segment achieved its requested duration (ffmpeg exited 0, file non-empty)
+            log "WARNING" "Could not measure duration; assuming requested ${remaining}s was achieved."
+            accumulated=$(( accumulated + remaining ))
+            if (( retry > 0 )); then
+                segments+=("$seg_file")
+            fi
+            log "INFO" "Segment added (assumed). Accumulated: ${accumulated}s / ${total_secs}s"
+
+            if (( accumulated >= total_secs - 2 )); then
+                log "SUCCESS" "Target reached within tolerance (assumed)."
+                break
+            fi
+        fi
+
+        ((retry++))
     done
 
+    if (( accumulated < total_secs - 2 )); then
+        log "ERROR" "Failed to reach target after ${retry} attempts. Final accumulated: ${accumulated}s"
+    fi
+
     if (( ${#segments[@]} > 1 )); then
-        log "INFO" ""
-        log "INFO" "Concatenating ${#segments[@]} segments:"
-        for seg in "${segments[@]}"; do
-            log "INFO" "  - $seg"
-        done
+        log "INFO" "Concatenating ${#segments[@]} segments..."
         merge_ts_segments "$output_path" "${segments[@]}"
         log "SUCCESS" "Concatenation complete: $output_path"
     else
-        log "INFO" "No retries needed — using initial recording as-is."
+        log "INFO" "No retries needed — single segment used."
     fi
 
     log "SUCCESS" "Recording finished."
