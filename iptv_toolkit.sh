@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # iptv_toolkit.sh — IPTV recording toolkit for Linux / Synology NAS
 # Requires: bash 4+, ffmpeg, ffprobe, python3 (3.9+ for zoneinfo)
+# Set FFMPEG_BIN / FFPROBE_BIN in iptv_configs.sh to use a non-default binary (e.g. ffmpeg7)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/Settings/iptv_configs.sh"
@@ -8,6 +9,10 @@ CONFIG_FILE="$SCRIPT_DIR/Settings/iptv_configs.sh"
 [[ -f "$CONFIG_FILE" ]] || { echo "Error: Config not found at $CONFIG_FILE" >&2; exit 1; }
 # shellcheck source=Settings/iptv_configs.sh
 source "$CONFIG_FILE"
+
+# Default to plain ffmpeg/ffprobe; config can override (e.g. FFMPEG_BIN=ffmpeg7)
+FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
+FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -25,7 +30,7 @@ load_config() {
 get_media_duration() {
     local file="$1"
     [[ -f "$file" ]] || { echo 0; return; }
-    ffprobe -v error -show_entries format=duration -of csv=p=0 "$file" 2>/dev/null || echo 0
+    "$FFPROBE_BIN" -v error -show_entries format=duration -of csv=p=0 "$file" 2>/dev/null || echo 0
 }
 
 to_int_floor() { awk "BEGIN {printf \"%d\", ${1}+0}"; }
@@ -101,7 +106,7 @@ remux_ts_to_mkv() {
     local ts_file="$1"
     local mkv_file="${ts_file%.ts}.mkv"
     echo "Remuxing to $mkv_file ..."
-    if ffmpeg -err_detect ignore_err -fflags +genpts \
+    if "$FFMPEG_BIN" -err_detect ignore_err -fflags +genpts \
               -i "$ts_file" -map 0 -c copy -avoid_negative_ts make_zero \
               "$mkv_file"; then
         rm "$ts_file"
@@ -133,7 +138,7 @@ merge_ts_segments() {
 
     printf "file '%s'\n" "${resolved[@]}" > "$concat_list"
     echo "Concatenating ${#resolved[@]} segments..."
-    ffmpeg -f concat -safe 0 -i "$concat_list" -c copy "$final_output"
+    "$FFMPEG_BIN" -f concat -safe 0 -i "$concat_list" -c copy "$final_output"
     local rc=$?
     for seg in "${resolved[@]}"; do
         [[ "$seg" != "$final_output" && -f "$seg" ]] && rm -f "$seg"
@@ -153,7 +158,7 @@ ffmpeg_with_retry() {
     shift 3
     local -a initial_args=("$@")
 
-    ffmpeg "${initial_args[@]}"
+    "$FFMPEG_BIN" "${initial_args[@]}"
 
     local elapsed elapsed_i total_i
     elapsed="$(get_media_duration "$output_path")"
@@ -185,7 +190,7 @@ ffmpeg_with_retry() {
 
         local seg_path="$dir/${base}_seg${retry}.ts"
         "$build_retry_func" "$remaining" "$seg_path" "$elapsed"
-        ffmpeg "${_RETRY_FFMPEG_ARGS[@]}"
+        "$FFMPEG_BIN" "${_RETRY_FFMPEG_ARGS[@]}"
 
         local seg_dur seg_i
         seg_dur="$(get_media_duration "$seg_path")"
@@ -326,7 +331,7 @@ record_live() {
 
     if [[ "$dry_run" == true ]]; then
         echo ""
-        echo "[DryRun] Would run: ffmpeg ${initial_args[*]}"
+        echo "[DryRun] Would run: $FFMPEG_BIN ${initial_args[*]}"
         return
     fi
 
@@ -436,7 +441,7 @@ record_catchup() {
 
         if [[ "$dry_run" == true ]]; then
             echo ""
-            echo "[DryRun] Would run: ffmpeg ${initial_args[*]}"
+            echo "[DryRun] Would run: $FFMPEG_BIN ${initial_args[*]}"
         else
             echo ""
             echo "Catch-up URL: $url"
