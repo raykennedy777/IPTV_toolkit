@@ -86,7 +86,7 @@ Catch-up records a past broadcast by its original air time (local time).
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90
 
 # Multiple channels — same time window, recorded sequentially
-Record-CatchupIPTV -Config myprovider -MultiChannel bbc_one,itv1 -StartAt "2025-06-01:20-00" -DurationMinutes 90
+Record-CatchupIPTV -Config myprovider -Channel bbc_one,itv1 -StartAt "2025-06-01:20-00" -DurationMinutes 90
 
 # Dry run
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90 -DryRun

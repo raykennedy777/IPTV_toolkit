@@ -349,29 +349,21 @@ function Record-LiveIPTV {
 }
 
 # -------------------------------------
-# 🕒 RECORD CATCH-UP STREAM (SINGLE CHANNEL)
+# 🕒 RECORD CATCH-UP STREAM
 # -------------------------------------
-# Record canalplus_sport from 4 May 2025 at 15:00 local time for 3 minutes
-# Record-CatchupIPTV -config trex -Channel canalplus_sport -StartAt "2025-05-04:15-00" -DurationMinutes 3
+# Single channel: Record canalplus_sport from 4 May 2025 at 15:00 local time for 3 minutes
+# Record-CatchupIPTV -Config trex -Channel canalplus_sport -StartAt "2025-05-04:15-00" -DurationMinutes 3
 #
-# -------------------------------------
-# 🕒 RECORD CATCH-UP STREAM (MULTIPLE CHANNELS)
-# -------------------------------------
-# Record canalplus_sport and sky_sport_de_mix for the same time chunk
-# Starts at 4 May 2025, 15:00 local time, each for 3 minutes
-# Record-CatchupIPTV -config trex -MultiChannel canalplus_sport,sky_sport_de_mix -StartAt "2025-05-04:15-00" -DurationMinutes 3
-# Current limitation: all channels must be on the same config
+# Multiple channels: Record the same time window sequentially
+# Record-CatchupIPTV -Config trex -Channel canalplus_sport,sky_sport_de_mix -StartAt "2025-05-04:15-00" -DurationMinutes 3
 #
-# -------------------------------------
-# 🔍 DRY RUN TO SHOW FFmpeg COMMAND
-# -------------------------------------
-# Just print the ffmpeg command without executing
-# Record-CatchupIPTV -config trex -Channel sky_sport_it_motogp -StartAt "2025-05-04:15-00" -DurationMinutes 3 -DryRun
+# Dry run: just print the ffmpeg command without executing
+# Record-CatchupIPTV -Config trex -Channel sky_sport_it_motogp -StartAt "2025-05-04:15-00" -DurationMinutes 3 -DryRun
 
 function Record-CatchupIPTV {
     param (
-        [string]$Channel,
-        [string[]]$MultiChannel,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Channel,
 
         [switch]$NoRemux,
 
@@ -395,24 +387,11 @@ function Record-CatchupIPTV {
 
     $conf = $Global:IPTVConfigs[$Config]
 
-    $channelsToRecord = @()
-    if ($MultiChannel) {
-        foreach ($chan in $MultiChannel) {
-            if (-not $conf.ChannelMap.ContainsKey($chan)) {
-                Write-Error "Invalid channel: $chan"
-                return
-            }
-        }
-        $channelsToRecord = $MultiChannel
-    } elseif ($Channel) {
-        if (-not $conf.ChannelMap.ContainsKey($Channel)) {
-            Write-Error "Invalid channel: $Channel"
+    foreach ($chan in $Channel) {
+        if (-not $conf.ChannelMap.ContainsKey($chan)) {
+            Write-Error "Invalid channel: $chan"
             return
         }
-        $channelsToRecord = @($Channel)
-    } else {
-        Write-Error "You must specify either -Channel or -MultiChannel."
-        return
     }
 
     try {
@@ -436,9 +415,9 @@ function Record-CatchupIPTV {
     $outputFolder = Join-Path $HOME "Videos"
     $DurationSeconds = $DurationMinutes * 60
     $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
-    $lastChan = $channelsToRecord[-1]
+    $lastChan = $Channel[-1]
 
-    foreach ($chan in $channelsToRecord) {
+    foreach ($chan in $Channel) {
         $code = $conf.ChannelMap[$chan]
         $outputPath = Join-Path $outputFolder "${chan}_${timestamp}.ts"
         $formatStyle = $conf.CatchupFormatStyle
@@ -508,7 +487,7 @@ function Record-CatchupIPTV {
             if (-not $NoRemux) { Remux-TSFileToMKV -TSFilePath $finalPath } else { Write-Host 'NoRemux: skipping remux.' }
         }
 
-        if ($channelsToRecord.Count -gt 1 -and $chan -ne $lastChan) {
+        if ($Channel.Count -gt 1 -and $chan -ne $lastChan) {
             Start-Sleep -Seconds 3
         }
     }
