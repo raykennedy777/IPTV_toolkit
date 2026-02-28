@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # iptv_toolkit.sh — IPTV recording toolkit for Linux / Synology NAS
-# Requires: bash 4+, ffmpeg, ffprobe, python3 (3.9+ for zoneinfo)
-# Set FFMPEG_BIN / FFPROBE_BIN in iptv_configs.sh to use a non-default binary (e.g. ffmpeg7)
+# Requires: bash 4+, ffmpeg, python3 (3.9+ for zoneinfo)
+# Set FFMPEG_BIN in iptv_configs.sh to use a non-default binary (e.g. ffmpeg7)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/Settings/iptv_configs.sh"
@@ -10,9 +10,8 @@ CONFIG_FILE="$SCRIPT_DIR/Settings/iptv_configs.sh"
 # shellcheck source=Settings/iptv_configs.sh
 source "$CONFIG_FILE"
 
-# Default to plain ffmpeg/ffprobe; config can override (e.g. FFMPEG_BIN=ffmpeg7)
+# Default to plain ffmpeg; config can override (e.g. FFMPEG_BIN=ffmpeg7)
 FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
-FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -27,14 +26,7 @@ load_config() {
     "config_${name}"
 }
 
-get_media_duration() {
-    local file="$1"
-    [[ -f "$file" ]] || { echo 0; return; }
-    "$FFPROBE_BIN" -v error -show_entries format=duration -of csv=p=0 "$file" 2>/dev/null || echo 0
-}
 
-to_int_floor() { awk "BEGIN {printf \"%d\", ${1}+0}"; }
-to_int_ceil()  { awk "BEGIN {x=${1}+0; i=int(x); print (x>i) ? i+1 : i}"; }
 
 parse_start_to_epoch() {
     # Parses yyyy-MM-dd:HH-mm (local time) to Unix epoch
@@ -158,14 +150,19 @@ ffmpeg_with_retry() {
     shift 3
     local -a initial_args=("$@")
 
-    "$FFMPEG_BIN" "${initial_args[@]}"
+    local start_epoch
+    start_epoch="$(date +%s)"
 
-    local elapsed elapsed_i total_i
-    elapsed="$(get_media_duration "$output_path")"
-    elapsed_i="$(to_int_floor "$elapsed")"
-    total_i="$(to_int_floor "$total_secs")"
+    # Run initial ffmpeg
+    if ! "$FFMPEG_BIN" "${initial_args[@]}"; then
+        echo "Error: initial ffmpeg failed." >&2
+        return 1
+    fi
 
-    if (( elapsed_i >= total_i - 2 )); then
+    local elapsed=$(( $(date +%s) - start_epoch ))
+    local total_i="$total_secs"
+
+    if (( elapsed >= total_i - 2 )); then
         return 0
     fi
 
@@ -174,14 +171,11 @@ ffmpeg_with_retry() {
     base="$(basename "${output_path%.ts}")"
 
     local -a segments=("$output_path")
-    local max_retries=5 min_remaining=10
+    local max_retries=5
 
     for (( retry=1; retry<=max_retries; retry++ )); do
-        local remaining remaining_i
-        remaining="$(awk "BEGIN {printf \"%.1f\", $total_secs - $elapsed}")"
-        remaining_i="$(to_int_floor "$remaining")"
-
-        if (( remaining_i < min_remaining )); then
+        local remaining=$(( total_i - elapsed ))
+        if (( remaining < 10 )); then
             echo "Only ${remaining}s remaining — skipping retry."
             break
         fi
@@ -190,23 +184,26 @@ ffmpeg_with_retry() {
 
         local seg_path="$dir/${base}_seg${retry}.ts"
         "$build_retry_func" "$remaining" "$seg_path" "$elapsed"
-        "$FFMPEG_BIN" "${_RETRY_FFMPEG_ARGS[@]}"
 
-        local seg_dur seg_i
-        seg_dur="$(get_media_duration "$seg_path")"
-        seg_i="$(to_int_floor "${seg_dur:-0}")"
+        local seg_start seg_elapsed
+        seg_start="$(date +%s)"
+        if ! "$FFMPEG_BIN" "${_RETRY_FFMPEG_ARGS[@]}"; then
+            echo "Error: retry ffmpeg failed." >&2
+            break
+        fi
+        seg_elapsed=$(( $(date +%s) - seg_start ))
 
-        if (( seg_i == 0 )); then
-            echo "Warning: Retry $retry produced empty/corrupt file — stopping retries." >&2
+        # Check segment file exists and non-empty
+        if [[ ! -s "$seg_path" ]]; then
+            echo "Warning: Retry $retry produced empty file — stopping retries." >&2
             rm -f "$seg_path"
             break
         fi
 
         segments+=("$seg_path")
-        elapsed="$(awk "BEGIN {printf \"%.1f\", $elapsed + $seg_dur}")"
-        elapsed_i="$(to_int_floor "$elapsed")"
+        elapsed=$(( elapsed + seg_elapsed ))
 
-        if (( elapsed_i >= total_i - 2 )); then
+        if (( elapsed >= total_i - 2 )); then
             echo "Target duration reached after retry $retry."
             break
         fi
@@ -226,13 +223,11 @@ _live_url=""
 
 _build_live_retry() {
     local remaining="$1" seg_path="$2"
-    local ceil_remaining
-    ceil_remaining="$(to_int_ceil "$remaining")"
     _RETRY_FFMPEG_ARGS=(
         "${_LIVE_ARGS[@]}"
         -i "$_live_url"
         -map "0:v?" -map "0:a?"
-        -t "$ceil_remaining"
+        -t "$remaining"
         -c copy "$seg_path"
     )
 }
@@ -356,11 +351,9 @@ _catchup_custom_duration=300
 
 _build_catchup_retry() {
     local remaining="$1" seg_path="$2" elapsed="$3"
-    local ceil_remaining advance_secs new_epoch ss_offset retry_url
-    ceil_remaining="$(to_int_ceil "$remaining")"
-    advance_secs="$(to_int_floor "$elapsed")"
-    new_epoch=$(( _catchup_start_epoch + advance_secs ))
-    ss_offset=$(( advance_secs % 60 ))
+    local new_epoch ss_offset retry_url
+    new_epoch=$(( _catchup_start_epoch + elapsed ))
+    ss_offset=$(( elapsed % 60 ))
 
     local new_encoded_start
     new_encoded_start="$(epoch_to_provider_tz "$new_epoch" "$CATCHUP_TIMEZONE")"
@@ -372,7 +365,7 @@ _build_catchup_retry() {
 
     _RETRY_FFMPEG_ARGS=("${_CATCHUP_ARGS[@]}" -i "$retry_url")
     (( ss_offset > 0 )) && _RETRY_FFMPEG_ARGS+=(-ss "$ss_offset")
-    _RETRY_FFMPEG_ARGS+=(-map "0:v?" -map "0:a?" -t "$ceil_remaining" -c copy "$seg_path")
+    _RETRY_FFMPEG_ARGS+=(-map "0:v?" -map "0:a?" -t "$remaining" -c copy "$seg_path")
 }
 
 record_catchup() {
