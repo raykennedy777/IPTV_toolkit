@@ -13,6 +13,18 @@ source "$CONFIG_FILE"
 # Default to plain ffmpeg; config can override (e.g. FFMPEG_BIN=ffmpeg7)
 FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
 
+# Logging setup — write logs to $SCRIPT_DIR/logs with timestamps
+LOG_DIR="${SCRIPT_DIR}/logs"
+mkdir -p "$LOG_DIR"
+# Global log file path (set at start of each command)
+LOG_FILE=""
+
+log() {
+    local level="${1:-INFO}"
+    local msg="${2:->}"
+    printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" | tee -a "$LOG_FILE" >&2
+}
+
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
@@ -97,14 +109,14 @@ readonly -a _CATCHUP_ARGS=(
 remux_ts_to_mkv() {
     local ts_file="$1"
     local mkv_file="${ts_file%.ts}.mkv"
-    echo "Remuxing to $mkv_file ..."
+    log "INFO" "Remuxing to $mkv_file ..."
     if "$FFMPEG_BIN" -err_detect ignore_err -fflags +genpts \
               -i "$ts_file" -map 0 -c copy -avoid_negative_ts make_zero \
               "$mkv_file"; then
         rm "$ts_file"
-        echo "Remux successful. Deleted original .ts file."
+        log "SUCCESS" "Remux successful. Deleted original .ts file."
     else
-        echo "Warning: Remux failed. .ts file kept." >&2
+        log "ERROR" "Remux failed. .ts file kept."
     fi
 }
 
@@ -129,7 +141,7 @@ merge_ts_segments() {
     done
 
     printf "file '%s'\n" "${resolved[@]}" > "$concat_list"
-    echo "Concatenating ${#resolved[@]} segments..."
+    log "INFO" "Concatenating ${#resolved[@]} segments..."
     "$FFMPEG_BIN" -f concat -safe 0 -i "$concat_list" -c copy "$final_output"
     local rc=$?
     for seg in "${resolved[@]}"; do
@@ -150,21 +162,29 @@ ffmpeg_with_retry() {
     shift 3
     local -a initial_args=("$@")
 
+    log "INFO" "Starting recording: $output_path (target: ${total_secs}s)"
+
     local start_epoch
     start_epoch="$(date +%s)"
 
     # Run initial ffmpeg
+    log "INFO" "Running initial ffmpeg..."
     if ! "$FFMPEG_BIN" "${initial_args[@]}"; then
-        echo "Error: initial ffmpeg failed." >&2
+        log "ERROR" "initial ffmpeg failed (exit $?)."
         return 1
     fi
 
     local elapsed=$(( $(date +%s) - start_epoch ))
+    log "INFO" "Initial run finished. Elapsed: ${elapsed}s, target: ${total_secs}s"
+
     local total_i="$total_secs"
 
     if (( elapsed >= total_i - 2 )); then
+        log "SUCCESS" "Target duration reached (within 2s tolerance)."
         return 0
     fi
+
+    log "WARNING" "Shortfall of $(( total_i - elapsed ))s — will retry."
 
     local dir base
     dir="$(dirname "$output_path")"
@@ -176,42 +196,60 @@ ffmpeg_with_retry() {
     for (( retry=1; retry<=max_retries; retry++ )); do
         local remaining=$(( total_i - elapsed ))
         if (( remaining < 10 )); then
-            echo "Only ${remaining}s remaining — skipping retry."
+            log "INFO" "Only ${remaining}s remaining (<10s threshold) — stopping retries."
             break
         fi
 
-        echo "Retry $retry/$max_retries — ${remaining}s remaining..."
+        log "INFO" ""
+        log "INFO" "RETRY $retry/$max_retries — need ${remaining}s more"
+        log "INFO" "Cumulative elapsed so far: ${elapsed}s"
 
         local seg_path="$dir/${base}_seg${retry}.ts"
         "$build_retry_func" "$remaining" "$seg_path" "$elapsed"
+        log "INFO" "Retry command: $FFMPEG_BIN ${_RETRY_FFMPEG_ARGS[*]}"
 
         local seg_start seg_elapsed
         seg_start="$(date +%s)"
         if ! "$FFMPEG_BIN" "${_RETRY_FFMPEG_ARGS[@]}"; then
-            echo "Error: retry ffmpeg failed." >&2
+            log "ERROR" "retry ffmpeg failed (exit $?)."
             break
         fi
         seg_elapsed=$(( $(date +%s) - seg_start ))
+        log "INFO" "Retry run completed in ${seg_elapsed}s"
 
         # Check segment file exists and non-empty
         if [[ ! -s "$seg_path" ]]; then
-            echo "Warning: Retry $retry produced empty file — stopping retries." >&2
+            log "ERROR" "Retry produced empty file ($seg_path) — stopping retries."
             rm -f "$seg_path"
             break
         fi
 
+        local seg_size
+        seg_size="$(du -h "$seg_path" 2>/dev/null | cut -f1 || echo "?")"
+        log "INFO" "Added segment ${seg_path} (size: ${seg_size})"
         segments+=("$seg_path")
         elapsed=$(( elapsed + seg_elapsed ))
+        log "INFO" "Cumulative elapsed after retry: ${elapsed}s"
 
         if (( elapsed >= total_i - 2 )); then
-            echo "Target duration reached after retry $retry."
+            log "SUCCESS" "Target duration reached (within 2s tolerance) after $retry retries."
             break
         fi
     done
 
     if (( ${#segments[@]} > 1 )); then
+        log "INFO" ""
+        log "INFO" "Concatenating ${#segments[@]} segments:"
+        for seg in "${segments[@]}"; do
+            log "INFO" "  - $seg"
+        done
         merge_ts_segments "$output_path" "${segments[@]}"
+        log "SUCCESS" "Concatenation complete: $output_path"
+    else
+        log "INFO" "No retries needed — using initial recording as-is."
     fi
+
+    log "SUCCESS" "Recording finished."
 }
 
 # ---------------------------------------------------------------------------
@@ -253,6 +291,11 @@ record_live() {
     [[ -n "$channel" ]]       || die "-channel is required"
     [[ -n "$duration_mins" ]] || die "-duration-minutes is required"
 
+    # Initialize log file
+    local timestamp
+    timestamp="$(date '+%Y%m%d_%H%M%S')"
+    LOG_FILE="${LOG_DIR}/record_live_${channel}_${timestamp}.log"
+
     load_config "$config"
     [[ -v "CHANNEL_MAP[$channel]" ]] || die "Invalid channel '$channel'. Valid: ${!CHANNEL_MAP[*]}"
 
@@ -275,11 +318,11 @@ record_live() {
         [[ "$no_remux" == true ]] && cron_cmd+=" -no-remux"
 
         local cron_entry="$cron_min $cron_hour $cron_day $cron_month * $cron_cmd # $tag"
-        echo ""
-        echo "[Schedule] Adding cron job:"
-        echo "  $cron_entry"
+        log "INFO" ""
+        log "INFO" "[Schedule] Adding cron job:"
+        log "INFO" "  $cron_entry"
         ( crontab -l 2>/dev/null; echo "$cron_entry" ) | crontab -
-        echo "Scheduled. Run 'crontab -l' to verify."
+        log "SUCCESS" "Scheduled. Run 'crontab -l' to verify."
         return
     fi
 
@@ -290,9 +333,9 @@ record_live() {
         now_epoch="$(date +%s)"
         (( start_epoch > now_epoch )) || die "Start time is in the past."
 
-        echo "Current time:   $(epoch_to_str "$now_epoch")"
-        echo "Scheduled time: $(epoch_to_str "$start_epoch")"
-        echo "Waiting to record [$channel] for [$duration_mins] minute(s)..."
+        log "INFO" "Current time:   $(epoch_to_str "$now_epoch")"
+        log "INFO" "Scheduled time: $(epoch_to_str "$start_epoch")"
+        log "INFO" "Waiting to record [$channel] for [$duration_mins] minute(s)..."
 
         while true; do
             now_epoch="$(date +%s)"
@@ -302,6 +345,7 @@ record_live() {
             sleep 1
         done
         printf "\rStarting now!             \n"
+        log "INFO" "Starting now."
     fi
 
     # --- Build URL and run ---
@@ -310,8 +354,7 @@ record_live() {
     [[ "$ADD_TS_SUFFIX" == true ]] && suffix=".ts"
     _live_url="${BASE_URL}/${USERNAME}/${PASSWORD}/${code}${suffix}"
 
-    echo ""
-    echo "URL: $_live_url"
+    log "INFO" "URL: $_live_url"
 
     mkdir -p "$OUTPUT_DIR"
     local output_path="${OUTPUT_DIR}/${channel}_$(date '+%Y%m%d_%H%M').ts"
@@ -325,18 +368,18 @@ record_live() {
     )
 
     if [[ "$dry_run" == true ]]; then
-        echo ""
-        echo "[DryRun] Would run: $FFMPEG_BIN ${initial_args[*]}"
+        log "INFO" ""
+        log "DRY-RUN" "Would run: $FFMPEG_BIN ${initial_args[*]}"
         return
     fi
 
-    echo "Recording $channel for $duration_mins minute(s)..."
+    log "INFO" "Recording $channel for $duration_mins minute(s)..."
     ffmpeg_with_retry "$output_path" "$duration_secs" _build_live_retry "${initial_args[@]}"
 
     if [[ "$no_remux" == false ]]; then
         remux_ts_to_mkv "$output_path"
     else
-        echo "NoRemux: skipping remux."
+        log "INFO" "NoRemux: skipping remux."
     fi
 }
 
@@ -392,6 +435,11 @@ record_catchup() {
     [[ -n "$duration_mins" ]] || die "-duration-minutes is required"
     [[ -n "$start_at" ]]      || die "-start-at is required (format: yyyy-MM-dd:HH-mm, your local time)"
 
+    # Initialize log file
+    local timestamp
+    timestamp="$(date '+%Y%m%d_%H%M%S')"
+    LOG_FILE="${LOG_DIR}/record_catchup_${start_at//[:,-]/_}_${timestamp}.log"
+
     load_config "$config"
     for chan in "${channels[@]}"; do
         [[ -v "CHANNEL_MAP[$chan]" ]] || die "Invalid channel '$chan'. Valid: ${!CHANNEL_MAP[*]}"
@@ -433,17 +481,17 @@ record_catchup() {
         )
 
         if [[ "$dry_run" == true ]]; then
-            echo ""
-            echo "[DryRun] Would run: $FFMPEG_BIN ${initial_args[*]}"
+            log "INFO" ""
+            log "DRY-RUN" "Would run: $FFMPEG_BIN ${initial_args[*]}"
         else
-            echo ""
-            echo "Catch-up URL: $url"
-            echo "Recording $chan (start: $encoded_start) for $duration_mins minute(s)..."
+            log "INFO" ""
+            log "INFO" "Catch-up URL: $url"
+            log "INFO" "Recording $chan (start: $encoded_start) for $duration_mins minute(s)..."
             ffmpeg_with_retry "$output_path" "$duration_secs" _build_catchup_retry "${initial_args[@]}"
             if [[ "$no_remux" == false ]]; then
                 remux_ts_to_mkv "$output_path"
             else
-                echo "NoRemux: skipping remux."
+                log "INFO" "NoRemux: skipping remux."
             fi
         fi
 
@@ -457,7 +505,7 @@ record_catchup() {
 
 remove_jobs() {
     local current_crontab
-    current_crontab="$(crontab -l 2>/dev/null)" || { echo "No crontab entries found."; return; }
+    current_crontab="$(crontab -l 2>/dev/null)" || { log "INFO" "No crontab entries found."; return; }
 
     local -a to_remove=()
     local now_epoch
@@ -483,18 +531,18 @@ except Exception:
     done <<< "$current_crontab"
 
     if (( ${#to_remove[@]} == 0 )); then
-        echo "No completed IPTV recording jobs to remove."
+        log "INFO" "No completed IPTV recording jobs to remove."
         return
     fi
 
     local new_crontab="$current_crontab"
     for line in "${to_remove[@]}"; do
-        echo "Removing: $line"
+        log "INFO" "Removing: $line"
         new_crontab="$(grep -Fv "$line" <<< "$new_crontab" || true)"
     done
 
     echo "$new_crontab" | crontab -
-    echo "${#to_remove[@]} job(s) removed."
+    log "SUCCESS" "${#to_remove[@]} job(s) removed."
 }
 
 # ---------------------------------------------------------------------------
