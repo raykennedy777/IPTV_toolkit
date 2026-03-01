@@ -115,9 +115,14 @@ Catch-up records a past broadcast by its original air time. `-start-at` uses you
 
 # Dry run
 ./iptv_toolkit.sh record-catchup -config myprovider -channel bbc_one -start-at "2026-03-01:20-00" -duration-minutes 90 -dry-run
+
+# Custom timeshift window (default: 300 seconds)
+./iptv_toolkit.sh record-catchup -config myprovider -channel bbc_one -start-at "2026-03-01:20-00" -duration-minutes 90 -custom-duration 600
 ```
 
 > Note: multiple channels are recorded sequentially (not in parallel) to stay within single-stream provider limits.
+
+> `-custom-duration` sets the timeshift window (in seconds) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
 
 ### Remove past scheduled jobs
 
@@ -130,6 +135,12 @@ Removes any `IPTV_record_*`-tagged cron entries whose scheduled time has already
 ## How retry works
 
 If ffmpeg exits before the full duration is captured, the toolkit automatically retries from where it left off, saving each attempt as a numbered segment. Once the target duration is reached (or retries are exhausted), all segments are concatenated into a single output file.
+
+## Logging
+
+Each recording run writes a timestamped log file to the `logs/` folder in the script directory:
+- `logs/record_live_{channel}_{timestamp}.log`
+- `logs/record_catchup_{startAt}_{timestamp}.log`
 
 ## Synology NAS notes
 
