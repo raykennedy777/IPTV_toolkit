@@ -18,6 +18,26 @@ $SettingsPath = Join-Path $ScriptDir "Settings\IPTVConfigs.ps1"
 . $SettingsPath
 
 # -------------------------------------
+# LOGGING INFRASTRUCTURE
+# -------------------------------------
+$Script:LogDir = Join-Path $ScriptDir "logs"
+New-Item -ItemType Directory -Path $Script:LogDir -Force | Out-Null
+$Script:LogFile = ""
+
+function Write-Log {
+    param(
+        [string]$Level,
+        [string]$Message
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = "[$timestamp] [$Level] $Message"
+    Write-Host $line
+    if ($Script:LogFile) {
+        Add-Content -Path $Script:LogFile -Value $line
+    }
+}
+
+# -------------------------------------
 # 📺 IPTV TOOLKIT
 # -------------------------------------
 # FEATURES
@@ -37,15 +57,15 @@ function Remux-TSFileToMKV {
     $mkvPath = [System.IO.Path]::ChangeExtension($TSFilePath, "mkv")
     $ffmpegArgs = "-err_detect ignore_err -fflags +genpts -i `"$TSFilePath`" -map 0 -c copy -avoid_negative_ts make_zero `"$mkvPath`""
 
-    Write-Output "Remuxing to mkv: $mkvPath ..."
+    Write-Log INFO "Remuxing to mkv: $mkvPath ..."
     $process = Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -NoNewWindow -Wait -PassThru
 
     if ($process.ExitCode -eq 0 -and (Test-Path $mkvPath)) {
         Remove-Item $TSFilePath
-        Write-Output "Remux successful. Deleted original .ts file."
+        Write-Log SUCCESS "Remux successful. Deleted original .ts file."
         return $mkvPath
     } else {
-        Write-Warning "Remux failed. .ts file kept."
+        Write-Log WARNING "Remux failed. .ts file kept."
         return $null
     }
 }
@@ -97,11 +117,11 @@ function Merge-TsSegments {
     $lines = $resolvedSegments | ForEach-Object { "file '$_'" }
     $lines | Set-Content -Path $concatList -Encoding UTF8
 
-    Write-Host "Concatenating $($resolvedSegments.Count) segments..."
+    Write-Log INFO "Concatenating $($resolvedSegments.Count) segments..."
     $process = Start-Process -FilePath "ffmpeg" -ArgumentList "-f concat -safe 0 -i `"$concatList`" -c copy `"$FinalOutputPath`"" -NoNewWindow -Wait -PassThru
 
     if ($process.ExitCode -ne 0) {
-        Write-Warning "Concatenation failed (ffmpeg exit code $($process.ExitCode))."
+        Write-Log WARNING "Concatenation failed (ffmpeg exit code $($process.ExitCode))."
     }
 
     # Clean up segment files and concat list
@@ -149,11 +169,11 @@ function Invoke-FfmpegWithRetry {
     for ($retry = 1; $retry -le $MaxRetries; $retry++) {
         $remaining = $TotalDurationSeconds - $elapsed
         if ($remaining -lt $MinRemainingSeconds) {
-            Write-Host "Only $([math]::Round($remaining, 1))s remaining — skipping retry."
+            Write-Log INFO "Only $([math]::Round($remaining, 1))s remaining — skipping retry."
             break
         }
 
-        Write-Host "Retry $retry/$MaxRetries — $([math]::Round($remaining, 0))s remaining..."
+        Write-Log INFO "Retry $retry/$MaxRetries — $([math]::Round($remaining, 0))s remaining..."
 
         $segPath = Join-Path $dir "${baseName}_seg${retry}.ts"
         $retryCmd = & $BuildRetryCommand $remaining $segPath $elapsed
@@ -162,7 +182,7 @@ function Invoke-FfmpegWithRetry {
 
         $segDuration = Get-MediaDuration -FilePath $segPath
         if ($segDuration -eq 0) {
-            Write-Warning "Retry $retry produced empty/corrupt file — stopping retries."
+            Write-Log WARNING "Retry $retry produced empty/corrupt file — stopping retries."
             if (Test-Path $segPath) { Remove-Item $segPath -Force }
             break
         }
@@ -171,7 +191,7 @@ function Invoke-FfmpegWithRetry {
         $elapsed += $segDuration
 
         if ($elapsed -ge ($TotalDurationSeconds - 2)) {
-            Write-Host "Target duration reached after retry $retry."
+            Write-Log INFO "Target duration reached after retry $retry."
             break
         }
     }
@@ -216,16 +236,19 @@ function Record-LiveIPTV {
     )
 
     if (-not $Global:IPTVConfigs.ContainsKey($Config)) {
-        Write-Error "Invalid config '$Config'. Define it in `\$IPTVConfigs` in your profile."
+        Write-Log ERROR "Invalid config '$Config'. Define it in `\$IPTVConfigs` in your profile."
         return
     }
 
     $conf = $Global:IPTVConfigs[$Config]
 
     if (-not $conf.ChannelMap.ContainsKey($Channel)) {
-        Write-Error "Invalid channel name: $Channel. Valid options: $($conf.ChannelMap.Keys -join ', ')"
+        Write-Log ERROR "Invalid channel name: $Channel. Valid options: $($conf.ChannelMap.Keys -join ', ')"
         return
     }
+
+    $Script:LogFile = Join-Path $Script:LogDir "record_live_${Channel}_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    Write-Log INFO "Recording session started: $Channel"
 
     $startTime = $null
     if ($StartAt) {
@@ -236,7 +259,7 @@ function Record-LiveIPTV {
                 [System.Globalization.DateTimeStyles]::AssumeLocal
             )
         } catch {
-            Write-Error "Invalid -StartAt format. Use yyyy-MM-dd:HH-mm."
+            Write-Log ERROR "Invalid -StartAt format. Use yyyy-MM-dd:HH-mm."
             return
         }
     }
@@ -244,7 +267,7 @@ function Record-LiveIPTV {
     # --- Schedule logic ---
     if ($Schedule) {
         if (-not $StartAt) {
-            Write-Error "You must provide -StartAt with -Schedule. Use format yyyy-MM-dd:HH-mm."
+            Write-Log ERROR "You must provide -StartAt with -Schedule. Use format yyyy-MM-dd:HH-mm."
             return
         }
 
@@ -261,9 +284,9 @@ function Record-LiveIPTV {
         $trString = "`"$pwshPath`" $argString"
 
         # Debug output
-        Write-Host "`n[DEBUG] Task will run (copy this into Task Scheduler's Action fields to confirm):"
-        Write-Host "Program/script: $pwshPath" -ForegroundColor Yellow
-        Write-Host "Add arguments: $argString" -ForegroundColor Yellow
+        Write-Log INFO "[DEBUG] Task will run (copy this into Task Scheduler's Action fields to confirm):"
+        Write-Log INFO "Program/script: $pwshPath"
+        Write-Log INFO "Add arguments: $argString"
 
         $dateStr = $startTime.ToString("dd/MM/yyyy")
         $timeStr = $startTime.ToString("HH:mm")
@@ -278,11 +301,11 @@ function Record-LiveIPTV {
             '/F'
         )
 
-        Write-Host "`nScheduling recording for $Channel at $dateStr $timeStr via Windows Task Scheduler..."
+        Write-Log INFO "Scheduling recording for $Channel at $dateStr $timeStr via Windows Task Scheduler..."
         $out = schtasks.exe @schtasksCmd
-        Write-Host $out
+        Write-Log INFO $out
 
-        Write-Host "Scheduled task '$taskName' created."
+        Write-Log INFO "Scheduled task '$taskName' created."
         return
     }
 
@@ -291,16 +314,16 @@ function Record-LiveIPTV {
 
     if ($StartAt) {
         $now = Get-Date
-        Write-Host "Current Time: $($now.ToString('yyyy-MM-dd HH:mm:ss'))"
-        Write-Host "Scheduled Start Time: $($startTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+        Write-Log INFO "Current Time: $($now.ToString('yyyy-MM-dd HH:mm:ss'))"
+        Write-Log INFO "Scheduled Start Time: $($startTime.ToString('yyyy-MM-dd HH:mm:ss'))"
 
         $delay = ($startTime - $now).TotalSeconds
         if ($delay -le 0) {
-            Write-Error "Start time is in the past. Recording cannot proceed."
+            Write-Log ERROR "Start time is in the past. Recording cannot proceed."
             return
         }
 
-        Write-Host "Sleeping until recording of [$Channel] starts at [$($startTime.ToString('yyyy-MM-dd HH:mm'))] for [$DurationMinutes] minute(s)..."
+        Write-Log INFO "Sleeping until recording of [$Channel] starts at [$($startTime.ToString('yyyy-MM-dd HH:mm'))] for [$DurationMinutes] minute(s)..."
         while ($true) {
             $remaining = [int](($startTime - (Get-Date)).TotalSeconds)
             if ($remaining -le 0) { break }
@@ -310,7 +333,8 @@ function Record-LiveIPTV {
 
             Start-Sleep -Seconds ([Math]::Min(1, $remaining))
         }
-        Write-Host "`rStarting now!             "
+        Write-Host ""
+        Write-Log INFO "Starting now!"
     }
 
     # --- Build stream URL ---
@@ -318,7 +342,7 @@ function Record-LiveIPTV {
     $suffix = if ($conf.AddTsSuffix) { ".ts" } else { "" }
     $url = "$($conf.BaseUrl)/$($conf.Username)/$($conf.Password)/$code$suffix"
 
-    Write-Host "`nURL being used: $url" -ForegroundColor Yellow
+    Write-Log INFO "URL being used: $url"
 
     $outputPath = Join-Path (Join-Path $HOME "Videos") "${Channel}_$(Get-Date -Format 'yyyyMMdd_HHmm').ts"
     $quotedUrl = '"' + $url + '"'
@@ -327,10 +351,9 @@ function Record-LiveIPTV {
     $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 200M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl -map 0:v? -map 0:a? -t $DurationSeconds -c copy $quotedOut"
 
     if ($DryRun) {
-        Write-Host "`n[DryRun] Would run command:"
-        Write-Host $cmd -ForegroundColor Cyan
+        Write-Log "DRY-RUN" "Would run command: $cmd"
     } else {
-        Write-Output "Recording $Channel now for $DurationMinutes minute(s)..."
+        Write-Log INFO "Recording $Channel now for $DurationMinutes minute(s)..."
 
         $buildRetryCmd = {
             param($remainingSeconds, $segmentPath, $elapsedSeconds)
@@ -344,7 +367,7 @@ function Record-LiveIPTV {
             -TotalDurationSeconds $DurationSeconds `
             -BuildRetryCommand $buildRetryCmd
 
-        if (-not $NoRemux) { Remux-TSFileToMKV -TSFilePath $finalPath } else { Write-Host 'NoRemux: skipping remux.' }
+        if (-not $NoRemux) { Remux-TSFileToMKV -TSFilePath $finalPath } else { Write-Log INFO "NoRemux: skipping remux." }
     }
 }
 
@@ -381,7 +404,7 @@ function Record-CatchupIPTV {
     )
 
     if (-not $Global:IPTVConfigs.ContainsKey($Config)) {
-        Write-Error "Invalid config '$Config'. Define it in `\$IPTVConfigs` in your profile."
+        Write-Log ERROR "Invalid config '$Config'. Define it in `\$IPTVConfigs` in your profile."
         return
     }
 
@@ -389,7 +412,7 @@ function Record-CatchupIPTV {
 
     foreach ($chan in $Channel) {
         if (-not $conf.ChannelMap.ContainsKey($chan)) {
-            Write-Error "Invalid channel: $chan"
+            Write-Log ERROR "Invalid channel: $chan"
             return
         }
     }
@@ -397,15 +420,19 @@ function Record-CatchupIPTV {
     try {
         $startTime = [datetime]::ParseExact($StartAt, "yyyy-MM-dd:HH-mm", [System.Globalization.CultureInfo]::InvariantCulture)
     } catch {
-        Write-Error "Invalid -StartAt format. Use yyyy-MM-dd:HH-mm"
+        Write-Log ERROR "Invalid -StartAt format. Use yyyy-MM-dd:HH-mm"
         return
     }
 
     $now = Get-Date
     if ($startTime -ge $now) {
-        Write-Error "StartAt time must be in the past. Catch-up recording only works for already aired programs."
+        Write-Log ERROR "StartAt time must be in the past. Catch-up recording only works for already aired programs."
         return
     }
+
+    $sanitizedStart = $StartAt -replace '[^a-zA-Z0-9]', '_'
+    $Script:LogFile = Join-Path $Script:LogDir "record_catchup_${sanitizedStart}_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    Write-Log INFO "Catch-up recording session started: $StartAt"
 
     $providerZone = [System.TimeZoneInfo]::FindSystemTimeZoneById($conf.CatchupTimezone)
     $utcTime = $startTime.ToUniversalTime()
@@ -431,7 +458,7 @@ function Record-CatchupIPTV {
                 $url = "$($conf.BaseUrl)/timeshift/$($conf.Username)/$($conf.Password)/$CustomDuration/$encodedStart/$code.ts"
             }
             default {
-                Write-Error "Unknown CatchupFormatStyle: $formatStyle"
+                Write-Log ERROR "Unknown CatchupFormatStyle: $formatStyle"
                 return
             }
         }
@@ -441,11 +468,10 @@ function Record-CatchupIPTV {
         $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl -map 0:v? -map 0:a? -t $DurationSeconds -c copy $quotedOut"
 
         if ($DryRun) {
-            Write-Host "`n[DryRun] Would run command:"
-            Write-Host $cmd -ForegroundColor Cyan
+            Write-Log "DRY-RUN" "Would run command: $cmd"
         } else {
-            Write-Host "`nCatch-up URL being used: $url" -ForegroundColor Yellow
-            Write-Output "Recording $chan at $convertedTime CET for $DurationMinutes minute(s)..."
+            Write-Log INFO "Catch-up URL being used: $url"
+            Write-Log INFO "Recording $chan at $convertedTime for $DurationMinutes minute(s)..."
 
             $buildRetryCmd = {
                 param($remainingSeconds, $segmentPath, $elapsedSeconds)
@@ -484,7 +510,7 @@ function Record-CatchupIPTV {
                 -TotalDurationSeconds $DurationSeconds `
                 -BuildRetryCommand $buildRetryCmd
 
-            if (-not $NoRemux) { Remux-TSFileToMKV -TSFilePath $finalPath } else { Write-Host 'NoRemux: skipping remux.' }
+            if (-not $NoRemux) { Remux-TSFileToMKV -TSFilePath $finalPath } else { Write-Log INFO "NoRemux: skipping remux." }
         }
 
         if ($Channel.Count -gt 1 -and $chan -ne $lastChan) {
@@ -494,13 +520,16 @@ function Record-CatchupIPTV {
 }
 
 function Remove-Recording-Tasks {
+    $Script:LogFile = Join-Path $Script:LogDir "remove_tasks_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    Write-Log INFO "Removing completed recording tasks..."
+
     $allText = (schtasks /query /fo LIST /v) -join "`n"
 
     # Split into per-task blocks and keep only Record-LiveIPTV_ ones
     $blocks = ($allText -split '(?m)(?=^TaskName:)') | Where-Object { $_ -match 'Record-LiveIPTV_' }
 
     if (-not $blocks) {
-        Write-Host "No Record-LiveIPTV tasks found."
+        Write-Log INFO "No Record-LiveIPTV tasks found."
         return
     }
 
@@ -511,16 +540,16 @@ function Remove-Recording-Tasks {
         $nextRun  = if ($block -match '(?m)^Next Run Time:\s+(.+)') { $Matches[1].Trim() } else { '' }
 
         if (($nextRun -eq '' -or $nextRun -eq 'N/A') -and $lastRun -ne '' -and $lastRun -ne 'N/A') {
-            Write-Host "Deleting completed task: $taskName"
+            Write-Log INFO "Deleting completed task: $taskName"
             schtasks /delete /tn "$taskName" /f | Out-Null
             $removed++
         }
     }
 
     if ($removed -eq 0) {
-        Write-Host "No completed Record-LiveIPTV tasks needed deletion."
+        Write-Log INFO "No completed Record-LiveIPTV tasks needed deletion."
     } else {
-        Write-Host "$removed completed Record-LiveIPTV task(s) deleted."
+        Write-Log INFO "$removed completed Record-LiveIPTV task(s) deleted."
     }
 }
 
