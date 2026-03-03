@@ -78,13 +78,31 @@ function Get-MediaDuration {
 
     if (-not (Test-Path $FilePath)) { return 0 }
 
+    # Try format-level duration first (works for most containers)
     try {
         $output = & ffprobe -v error -show_entries format=duration -of csv=p=0 "$FilePath" 2>$null
         $duration = [double]$output
-        return $duration
-    } catch {
-        return 0
-    }
+        if ($duration -gt 0) { return $duration }
+    } catch { }
+
+    # Fallback: count video packets ÷ frame rate — works for live IPTV .ts files
+    # where duration is not stored in the container headers (Duration: N/A from source)
+    try {
+        $pktInfo = & ffprobe -v error -select_streams "v:0" -count_packets `
+            -show_entries "stream=nb_read_packets,r_frame_rate" `
+            -of csv=p=0 "$FilePath" 2>$null
+        if ($pktInfo) {
+            $parts = $pktInfo -split ','
+            $packets = [double]$parts[0]
+            $fpsParts = $parts[1] -split '/'
+            $fps = [double]$fpsParts[0] / [double]$fpsParts[1]
+            if ($packets -gt 0 -and $fps -gt 0) {
+                return [math]::Round($packets / $fps, 3)
+            }
+        }
+    } catch { }
+
+    return 0
 }
 
 function Merge-TsSegments {

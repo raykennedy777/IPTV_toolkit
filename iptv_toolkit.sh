@@ -158,12 +158,30 @@ _RETRY_FFMPEG_ARGS=()
 # Probe media file to get its content duration in seconds (integer)
 measure_duration() {
     local file="$1"
-    # Prefer video stream duration; fall back to format duration
     local dur
-    dur="$("$FFPROBE_BIN" -v error -select_streams v:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null)"
+
+    # Try video stream duration, then format-level duration
+    dur="$("$FFPROBE_BIN" -v error -select_streams v:0 -show_entries stream=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null)"
     if [[ -z "$dur" || "$dur" == "N/A" ]]; then
-        dur="$("$FFPROBE_BIN" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null)"
+        dur="$("$FFPROBE_BIN" -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null)"
     fi
+
+    # Last resort: count video packets ÷ frame rate — works for live IPTV .ts files
+    # where duration is not stored in the container headers (Duration: N/A from source)
+    if [[ -z "$dur" || "$dur" == "N/A" ]]; then
+        local pkt_info packets fps
+        pkt_info="$("$FFPROBE_BIN" -v error -select_streams v:0 -count_packets \
+            -show_entries stream=nb_read_packets,r_frame_rate \
+            -of csv=p=0 "$file" 2>/dev/null)"
+        packets="$(echo "$pkt_info" | cut -d, -f1)"
+        fps="$(echo "$pkt_info" | cut -d, -f2)"  # e.g. "50/1"
+        if [[ -n "$packets" && "$packets" -gt 0 && -n "$fps" ]]; then
+            dur="$(awk "BEGIN { split(\"$fps\", a, \"/\"); if (a[2]+0 > 0) printf \"%.3f\", $packets * a[2] / a[1] }")"
+        fi
+    fi
+
     if [[ -z "$dur" || "$dur" == "N/A" ]]; then
         echo 0
     else

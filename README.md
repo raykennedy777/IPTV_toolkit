@@ -1,6 +1,6 @@
 # IPTV Toolkit
 
-PowerShell scripts for recording live and catch-up IPTV streams on Windows using ffmpeg.
+PowerShell scripts for recording live and catch-up IPTV streams on Windows using ffmpeg. A bash version for Linux is also available — see [README_linux.md](README_linux.md).
 
 ## Features
 
