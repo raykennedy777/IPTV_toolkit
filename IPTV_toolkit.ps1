@@ -252,7 +252,7 @@ function Record-LiveIPTV {
 
         [switch]$Schedule,
 
-        [switch]$AudioOnly
+        [switch]$FirstAudioOnly
     )
 
     if (-not $Global:IPTVConfigs.ContainsKey($Config)) {
@@ -367,7 +367,7 @@ function Record-LiveIPTV {
     $outputPath = Join-Path (Join-Path $HOME "Videos") "${Channel}_$(Get-Date -Format 'yyyyMMdd_HHmm').ts"
     $quotedUrl = '"' + $url + '"'
     $quotedOut = '"' + $outputPath + '"'
-    $mapArgs = if ($AudioOnly) { "-map 0:a?" } else { "-map 0:v? -map 0:a?" }
+    $mapArgs = if ($FirstAudioOnly) { "-map 0:a:0" } else { "-map 0:v? -map 0:a?" }
 
     $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 200M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl $mapArgs -t $DurationSeconds -c copy $quotedOut"
 
@@ -423,7 +423,7 @@ function Record-CatchupIPTV {
 
         [switch]$DryRun,
 
-        [switch]$AudioOnly
+        [switch]$FirstAudioOnly
     )
 
     if (-not $Global:IPTVConfigs.ContainsKey($Config)) {
@@ -488,7 +488,7 @@ function Record-CatchupIPTV {
 
         $quotedUrl = '"' + $url + '"'
         $quotedOut = '"' + $outputPath + '"'
-        $mapArgs = if ($AudioOnly) { "-map 0:a?" } else { "-map 0:v? -map 0:a?" }
+        $mapArgs = if ($FirstAudioOnly) { "-map 0:a:0" } else { "-map 0:v? -map 0:a?" }
         $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl $mapArgs -t $DurationSeconds -c copy $quotedOut"
 
         if ($DryRun) {
