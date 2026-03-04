@@ -250,7 +250,9 @@ function Record-LiveIPTV {
 
         [switch]$DryRun,
 
-        [switch]$Schedule
+        [switch]$Schedule,
+
+        [switch]$AudioOnly
     )
 
     if (-not $Global:IPTVConfigs.ContainsKey($Config)) {
@@ -365,8 +367,9 @@ function Record-LiveIPTV {
     $outputPath = Join-Path (Join-Path $HOME "Videos") "${Channel}_$(Get-Date -Format 'yyyyMMdd_HHmm').ts"
     $quotedUrl = '"' + $url + '"'
     $quotedOut = '"' + $outputPath + '"'
+    $mapArgs = if ($AudioOnly) { "-map 0:a?" } else { "-map 0:v? -map 0:a?" }
 
-    $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 200M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl -map 0:v? -map 0:a? -t $DurationSeconds -c copy $quotedOut"
+    $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 200M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl $mapArgs -t $DurationSeconds -c copy $quotedOut"
 
     if ($DryRun) {
         Write-Log "DRY-RUN" "Would run command: $cmd"
@@ -376,7 +379,7 @@ function Record-LiveIPTV {
         $buildRetryCmd = {
             param($remainingSeconds, $segmentPath, $elapsedSeconds)
             $quotedSeg = '"' + $segmentPath + '"'
-            "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 200M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl -map 0:v? -map 0:a? -t $([math]::Ceiling($remainingSeconds)) -c copy $quotedSeg"
+            "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 200M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl $mapArgs -t $([math]::Ceiling($remainingSeconds)) -c copy $quotedSeg"
         }
 
         $finalPath = Invoke-FfmpegWithRetry `
@@ -418,7 +421,9 @@ function Record-CatchupIPTV {
 
         [int]$CustomDuration = 300,
 
-        [switch]$DryRun
+        [switch]$DryRun,
+
+        [switch]$AudioOnly
     )
 
     if (-not $Global:IPTVConfigs.ContainsKey($Config)) {
@@ -483,7 +488,8 @@ function Record-CatchupIPTV {
 
         $quotedUrl = '"' + $url + '"'
         $quotedOut = '"' + $outputPath + '"'
-        $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl -map 0:v? -map 0:a? -t $DurationSeconds -c copy $quotedOut"
+        $mapArgs = if ($AudioOnly) { "-map 0:a?" } else { "-map 0:v? -map 0:a?" }
+        $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl $mapArgs -t $DurationSeconds -c copy $quotedOut"
 
         if ($DryRun) {
             Write-Log "DRY-RUN" "Would run command: $cmd"
@@ -518,7 +524,7 @@ function Record-CatchupIPTV {
                 if ($ssOffset -gt 0) {
                     $retryCmd += " -ss $ssOffset"
                 }
-                $retryCmd += " -map 0:v? -map 0:a? -t $([math]::Ceiling($remainingSeconds)) -c copy $quotedSeg"
+                $retryCmd += " $mapArgs -t $([math]::Ceiling($remainingSeconds)) -c copy $quotedSeg"
                 $retryCmd
             }
 

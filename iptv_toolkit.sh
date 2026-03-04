@@ -294,13 +294,16 @@ ffmpeg_with_retry() {
 
 # _live_url is set by record_live and read by this retry builder
 _live_url=""
+_audio_only=false
 
 _build_live_retry() {
     local remaining="$1" seg_path="$2"
+    local -a map_args=(-map "0:v?" -map "0:a?")
+    [[ "$_audio_only" == true ]] && map_args=(-map "0:a?")
     _RETRY_FFMPEG_ARGS=(
         "${_LIVE_ARGS[@]}"
         -i "$_live_url"
-        -map "0:v?" -map "0:a?"
+        "${map_args[@]}"
         -t "$remaining"
         -c copy "$seg_path"
     )
@@ -309,6 +312,7 @@ _build_live_retry() {
 record_live() {
     local config="" channel="" duration_mins="" start_at=""
     local no_remux=false dry_run=false schedule=false
+    _audio_only=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -319,6 +323,7 @@ record_live() {
             -no-remux)         no_remux=true;      shift   ;;
             -dry-run)          dry_run=true;       shift   ;;
             -schedule)         schedule=true;      shift   ;;
+            -audio-only)       _audio_only=true;   shift   ;;
             *) die "Unknown option: $1" ;;
         esac
     done
@@ -395,10 +400,13 @@ record_live() {
     mkdir -p "$OUTPUT_DIR"
     local output_path="${OUTPUT_DIR}/${channel}_$(date '+%Y%m%d_%H%M').ts"
 
+    local -a map_args=(-map "0:v?" -map "0:a?")
+    [[ "$_audio_only" == true ]] && map_args=(-map "0:a?")
+
     local -a initial_args=(
         "${_LIVE_ARGS[@]}"
         -i "$_live_url"
-        -map "0:v?" -map "0:a?"
+        "${map_args[@]}"
         -t "$duration_secs"
         -c copy "$output_path"
     )
@@ -442,9 +450,11 @@ _build_catchup_retry() {
         path)  retry_url="${BASE_URL}/timeshift/${USERNAME}/${PASSWORD}/${_catchup_custom_duration}/${new_encoded_start}/${_catchup_code}.ts" ;;
     esac
 
+    local -a map_args=(-map "0:v?" -map "0:a?")
+    [[ "$_audio_only" == true ]] && map_args=(-map "0:a?")
     _RETRY_FFMPEG_ARGS=("${_CATCHUP_ARGS[@]}" -i "$retry_url")
     (( ss_offset > 0 )) && _RETRY_FFMPEG_ARGS+=(-ss "$ss_offset")
-    _RETRY_FFMPEG_ARGS+=(-map "0:v?" -map "0:a?" -t "$remaining" -c copy "$seg_path")
+    _RETRY_FFMPEG_ARGS+=("${map_args[@]}" -t "$remaining" -c copy "$seg_path")
 }
 
 record_catchup() {
@@ -452,6 +462,7 @@ record_catchup() {
     local -a channels=()
     local no_remux=false dry_run=false
     _catchup_custom_duration=300
+    _audio_only=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -462,6 +473,7 @@ record_catchup() {
             -no-remux)         no_remux=true;                        shift   ;;
             -dry-run)          dry_run=true;                         shift   ;;
             -custom-duration)  _catchup_custom_duration="$2";        shift 2 ;;
+            -audio-only)       _audio_only=true;                     shift   ;;
             *) die "Unknown option: $1" ;;
         esac
     done
@@ -508,10 +520,13 @@ record_catchup() {
             *)     die "Unknown CATCHUP_FORMAT_STYLE: $CATCHUP_FORMAT_STYLE" ;;
         esac
 
+        local -a map_args=(-map "0:v?" -map "0:a?")
+        [[ "$_audio_only" == true ]] && map_args=(-map "0:a?")
+
         local -a initial_args=(
             "${_CATCHUP_ARGS[@]}"
             -i "$url"
-            -map "0:v?" -map "0:a?"
+            "${map_args[@]}"
             -t "$duration_secs"
             -c copy "$output_path"
         )
@@ -600,6 +615,7 @@ usage() {
     echo "  -start-at DATETIME      Wait until this local time before recording"
     echo "  -schedule               Add a cron job instead of waiting in the terminal"
     echo "  -no-remux               Keep output as .ts (skip remux to .mkv)"
+    echo "  -audio-only             Record audio stream only (no video)"
     echo "  -dry-run                Print the ffmpeg command without running it"
     echo ""
     echo "record-catchup options:"
@@ -608,6 +624,7 @@ usage() {
     echo "  -start-at DATETIME      Broadcast start time in your local time (required)"
     echo "  -duration-minutes N     Duration in minutes (required)"
     echo "  -no-remux               Keep output as .ts"
+    echo "  -audio-only             Record audio stream only (no video)"
     echo "  -dry-run                Print ffmpeg command without running"
     echo "  -custom-duration N      Timeshift window in seconds (default: 300)"
     echo ""
