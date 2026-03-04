@@ -483,7 +483,7 @@ function Record-CatchupIPTV {
 
         $quotedUrl = '"' + $url + '"'
         $quotedOut = '"' + $outputPath + '"'
-        $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl -map 0:v? -map 0:a? -t $DurationSeconds -c copy $quotedOut"
+        $cmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedUrl -map 0:v? -map 0:a? -t $DurationSeconds -c copy $quotedOut"
 
         if ($DryRun) {
             Write-Log "DRY-RUN" "Would run command: $cmd"
@@ -514,7 +514,7 @@ function Record-CatchupIPTV {
                 $quotedRetryUrl = '"' + $retryUrl + '"'
                 $quotedSeg = '"' + $segmentPath + '"'
 
-                $retryCmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedRetryUrl"
+                $retryCmd = "ffmpeg -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M -user_agent `"Mozilla/5.0`" -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 30 -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts -i $quotedRetryUrl"
                 if ($ssOffset -gt 0) {
                     $retryCmd += " -ss $ssOffset"
                 }
