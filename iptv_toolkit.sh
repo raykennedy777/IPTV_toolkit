@@ -98,7 +98,7 @@ readonly -a _LIVE_ARGS=(
 readonly -a _CATCHUP_ARGS=(
     -analyzeduration 20000000 -probesize 20000000 -rtbufsize 400M
     -user_agent "Mozilla/5.0"
-    -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1
+    -reconnect 1 -reconnect_streamed 1
     -reconnect_on_network_error 1 -reconnect_delay_max 30
     -rw_timeout 15000000 -err_detect ignore_err -fflags +genpts
 )
