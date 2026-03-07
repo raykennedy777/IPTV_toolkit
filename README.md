@@ -94,7 +94,7 @@ Record-CatchupIPTV -Config myprovider -Channel bbc_one,itv1 -StartAt "2025-06-01
 # Dry run
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90 -DryRun
 
-# Custom timeshift window (default: 300 seconds)
+# Custom timeshift window (default: 300 minutes)
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90 -CustomDuration 600
 ```
 
