@@ -662,12 +662,7 @@ $Global:IPTVConfigs = @{
     }
 
     # --- Catchup URL (new providers only) ---
-    # Pre-detect timezone from any existing provider config
-    $defaultTimezone = 'UTC'
-    if ($Global:IPTVConfigs -and $Global:IPTVConfigs.Count -gt 0) {
-        $firstTz = ($Global:IPTVConfigs.Values | Select-Object -First 1).CatchupTimezone
-        if ($firstTz) { $defaultTimezone = $firstTz }
-    }
+    $defaultTimezone = 'Central European Standard Time'
 
     $catchupUrl  = ''
     $formatStyle = 'query'

@@ -758,14 +758,7 @@ CFGEOF
     fi
 
     # --- Catchup URL (new providers only) ---
-    # Pre-detect timezone from any existing provider in the config file
-    local _default_tz="UTC"
-    if [[ -f "$CONFIG_FILE" ]]; then
-        local _found_tz
-        _found_tz="$(grep -m1 'CATCHUP_TIMEZONE=' "$CONFIG_FILE" | sed 's/.*CATCHUP_TIMEZONE="\(.*\)".*/\1/')"
-        [[ -n "$_found_tz" ]] && _default_tz="$_found_tz"
-    fi
-
+    local _default_tz="Europe/Paris"
     local catchup_url="" format_style="query" timezone="$_default_tz"
     if [[ "$existing" == false ]]; then
         echo ""
