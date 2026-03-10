@@ -4,6 +4,7 @@ PowerShell scripts for recording live and catch-up IPTV streams on Windows using
 
 ## Features
 
+- **Interactive setup wizard** — generate a config from a live stream URL
 - Record a live stream for a set duration
 - Wait until a specific time, then record
 - Schedule a recording via Windows Task Scheduler
@@ -20,12 +21,30 @@ PowerShell scripts for recording live and catch-up IPTV streams on Windows using
 
 ## Setup
 
-1. Clone the repo
-2. Copy the example config and fill in your provider details:
+### Option A — interactive wizard (recommended for first-time setup)
+
+Run the setup wizard and follow the prompts. It will create the config file and walk you through adding your first provider and channel:
+
+```powershell
+.\IPTV_toolkit.ps1 -Command setup-config
+```
+
+You'll be asked for:
+1. A provider name (e.g. `myprovider`)
+2. A live stream URL for any channel — the wizard parses out the base URL, credentials, and stream ID automatically
+3. A catch-up URL (optional) — format style is auto-detected
+4. A timezone for catch-up times
+5. A channel name — normalized to lowercase with underscores automatically
+
+Run the wizard again with the same provider name to add more channels.
+
+### Option B — manual setup
+
+1. Copy the example config and fill in your provider details:
    ```
    copy Settings\IPTVConfigs.example.ps1 Settings\IPTVConfigs.ps1
    ```
-3. Edit `Settings\IPTVConfigs.ps1` with your credentials and channel IDs
+2. Edit `Settings\IPTVConfigs.ps1` with your credentials and channel IDs
 
 `IPTVConfigs.ps1` is gitignored — your credentials never leave your machine.
 
@@ -51,12 +70,22 @@ Each provider is a named entry in `$Global:IPTVConfigs`. The key is what you pas
 
 ## Usage
 
-The script is dot-sourced so you can call functions interactively, or run it directly for live recording.
+The script is dot-sourced so you can call functions interactively, or run it directly with `-Command`.
 
 ### Dot-source for interactive use
 
 ```powershell
 . .\IPTV_toolkit.ps1
+```
+
+### List all channels for a provider
+
+```powershell
+# Via -Command
+.\IPTV_toolkit.ps1 -Command list-channels -Config myprovider
+
+# Or after dot-sourcing
+List-IPTVChannels -Config myprovider
 ```
 
 ### Record a live stream

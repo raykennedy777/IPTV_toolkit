@@ -12,6 +12,26 @@ Designed for headless use on a Synology NAS but works on any Linux system.
 
 ## Setup
 
+### Option A — interactive wizard (recommended for first-time setup)
+
+Make the script executable, then run the setup wizard:
+
+```sh
+chmod +x iptv_toolkit.sh
+./iptv_toolkit.sh setup-config
+```
+
+You'll be asked for:
+1. A provider name (e.g. `myprovider`)
+2. A live stream URL for any channel — the wizard parses out the base URL, credentials, and stream ID automatically
+3. A catch-up URL (optional) — format style is auto-detected
+4. An IANA timezone for catch-up times (e.g. `Europe/London`)
+5. A channel name — normalized to lowercase with underscores automatically
+
+The config file is created if it doesn't exist. Run the wizard again with the same provider name to add more channels.
+
+### Option B — manual setup
+
 1. Copy the example config and fill in your provider details:
    ```sh
    cp Settings/iptv_configs.example.sh Settings/iptv_configs.sh
@@ -80,6 +100,12 @@ config_myprovider() {
 ```
 
 ## Usage
+
+### List all channels for a provider
+
+```sh
+./iptv_toolkit.sh list-channels -config myprovider
+```
 
 ### Record a live stream
 
