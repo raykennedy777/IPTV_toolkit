@@ -662,9 +662,16 @@ $Global:IPTVConfigs = @{
     }
 
     # --- Catchup URL (new providers only) ---
+    # Pre-detect timezone from any existing provider config
+    $defaultTimezone = 'UTC'
+    if ($Global:IPTVConfigs -and $Global:IPTVConfigs.Count -gt 0) {
+        $firstTz = ($Global:IPTVConfigs.Values | Select-Object -First 1).CatchupTimezone
+        if ($firstTz) { $defaultTimezone = $firstTz }
+    }
+
     $catchupUrl  = ''
     $formatStyle = 'query'
-    $timezone    = 'UTC'
+    $timezone    = $defaultTimezone
 
     if (-not $existing) {
         Write-Host ""
@@ -703,8 +710,8 @@ $Global:IPTVConfigs = @{
         Write-Host "Use a Windows timezone ID."
         Write-Host "Run: [System.TimeZoneInfo]::GetSystemTimeZones() | Select-Object Id, DisplayName"
         Write-Host "Common values: 'UTC', 'Central European Standard Time', 'GMT Standard Time'"
-        $tzInput  = Read-Host "Timezone [UTC]"
-        $timezone = if ($tzInput) { $tzInput } else { 'UTC' }
+        $tzInput  = Read-Host "Timezone (press Enter for '$defaultTimezone', or type another)"
+        $timezone = if ($tzInput) { $tzInput } else { $defaultTimezone }
     }
 
     # --- Channel name ---

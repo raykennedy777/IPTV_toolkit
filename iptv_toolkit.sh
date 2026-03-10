@@ -758,7 +758,15 @@ CFGEOF
     fi
 
     # --- Catchup URL (new providers only) ---
-    local catchup_url="" format_style="query" timezone="UTC"
+    # Pre-detect timezone from any existing provider in the config file
+    local _default_tz="UTC"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        local _found_tz
+        _found_tz="$(grep -m1 'CATCHUP_TIMEZONE=' "$CONFIG_FILE" | sed 's/.*CATCHUP_TIMEZONE="\(.*\)".*/\1/')"
+        [[ -n "$_found_tz" ]] && _default_tz="$_found_tz"
+    fi
+
+    local catchup_url="" format_style="query" timezone="$_default_tz"
     if [[ "$existing" == false ]]; then
         echo ""
         echo "Enter the catch-up (timeshift) URL for this channel, or press Enter to skip."
@@ -784,8 +792,8 @@ CFGEOF
         echo "What timezone does this provider use for catch-up times?"
         echo "Use IANA names — e.g. UTC, Europe/London, America/New_York, Europe/Paris"
         echo "List available: python3 -c \"import zoneinfo; print(*sorted(zoneinfo.available_timezones()), sep='\\\n')\""
-        read -rp "Timezone [UTC]: " _tz_input
-        timezone="${_tz_input:-UTC}"
+        read -rp "Timezone [press Enter for '$_default_tz', or type another]: " _tz_input
+        timezone="${_tz_input:-$_default_tz}"
     fi
 
     # --- Channel name ---
