@@ -29,11 +29,43 @@ log() {
 
 die() { echo "Error: $*" >&2; exit 1; }
 
-load_config() {
+# Reset the channel map and run the provider's config function. No validation —
+# the raw building block shared by load_config and validate-config.
+_run_config_fn() {
     local name="$1"
     declare -gA CHANNEL_MAP=()
     type "config_${name}" &>/dev/null || die "Unknown config '$name'. Define config_${name}() in iptv_configs.sh."
     "config_${name}"
+}
+
+# Fast, cheap load-guard run before every record command; fails fast with a
+# clear message. Heavier checks (timezone validity, duplicate-key scan) live in
+# validate-config only.
+_load_guard() {
+    local name="$1"
+    local -a problems=()
+    [[ -n "${USERNAME:-}" ]]   || problems+=("USERNAME is empty")
+    [[ -n "${PASSWORD:-}" ]]   || problems+=("PASSWORD is empty")
+    [[ -n "${BASE_URL:-}" ]]   || problems+=("BASE_URL is empty")
+    [[ -n "${OUTPUT_DIR:-}" ]] || problems+=("OUTPUT_DIR is not set")
+    case "${CATCHUP_FORMAT_STYLE:-}" in
+        query|path) ;;
+        *) problems+=("CATCHUP_FORMAT_STYLE must be 'query' or 'path' (got '${CATCHUP_FORMAT_STYLE:-}')") ;;
+    esac
+    (( ${#CHANNEL_MAP[@]} > 0 )) || problems+=("CHANNEL_MAP is empty")
+
+    if (( ${#problems[@]} > 0 )); then
+        local msg="Config '$name' is invalid:" p
+        for p in "${problems[@]}"; do msg+=$'\n'"  - $p"; done
+        msg+=$'\n'"Run 'validate-config -config $name' for the full report."
+        die "$msg"
+    fi
+}
+
+load_config() {
+    local name="$1"
+    _run_config_fn "$name"
+    _load_guard "$name"
 }
 
 # ---------------------------------------------------------------------------
@@ -867,6 +899,154 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# validate-config — static, offline validation of the config file
+# ---------------------------------------------------------------------------
+
+# List provider names (config_NAME) defined in the config file text.
+_list_providers() {
+    grep -oE '^config_[A-Za-z0-9_]+[[:space:]]*\(\)' "$CONFIG_FILE" 2>/dev/null \
+        | sed -E 's/[[:space:]]*\(\)$//; s/^config_//'
+}
+
+# Print duplicate CHANNEL_MAP keys for a provider by scanning the config text.
+# bash-4 keeps the LAST duplicate; the mac cm_get shim returns the FIRST — a
+# real cross-script divergence, so a duplicate key is always an error.
+_dup_channel_keys() {
+    python3 - "$CONFIG_FILE" "$1" <<'PYEOF'
+import sys, re
+try:
+    content = open(sys.argv[1]).read()
+except OSError:
+    sys.exit(0)
+provider = sys.argv[2]
+m = re.search(r'^config_%s\s*\(\)' % re.escape(provider), content, re.M)
+if not m:
+    sys.exit(0)
+mm = re.search(r'declare -gA CHANNEL_MAP=\(', content[m.end():])
+if not mm:
+    sys.exit(0)
+start = m.end() + mm.end()
+cm = re.search(r'\n\s*\)', content[start:])
+region = content[start:start + cm.start()] if cm else content[start:]
+keys = re.findall(r'\[\s*"([^"]*)"\s*\]\s*=', region)
+seen = {}
+for k in keys:
+    seen[k] = seen.get(k, 0) + 1
+dups = sorted(k for k, c in seen.items() if c > 1)
+if dups:
+    print(",".join(dups))
+PYEOF
+}
+
+# Validate one provider. Prints a per-provider report; sets _VALIDATE_ERRORS.
+_VALIDATE_ERRORS=0
+_validate_one() {
+    local name="$1"
+    local -a errors=() warnings=()
+
+    # Reset ffmpeg binaries to the baseline so a per-provider override is judged
+    # on its own and does not leak into the next provider.
+    FFMPEG_BIN="${_BASE_FFMPEG_BIN:-ffmpeg}"
+    FFPROBE_BIN="${_BASE_FFPROBE_BIN:-ffprobe}"
+    _run_config_fn "$name"
+
+    # --- Hard errors ---
+    [[ -n "${USERNAME:-}" ]]   || errors+=("USERNAME is missing or empty")
+    [[ -n "${PASSWORD:-}" ]]   || errors+=("PASSWORD is missing or empty")
+    [[ -n "${BASE_URL:-}" ]]   || errors+=("BASE_URL is missing or empty")
+    [[ -n "${OUTPUT_DIR:-}" ]] || errors+=("OUTPUT_DIR is not set (top-level in the config file)")
+
+    case "${CATCHUP_FORMAT_STYLE:-}" in
+        query|path) ;;
+        *) errors+=("CATCHUP_FORMAT_STYLE must be 'query' or 'path' (got '${CATCHUP_FORMAT_STYLE:-}')") ;;
+    esac
+
+    if [[ -z "${CATCHUP_TIMEZONE:-}" ]]; then
+        errors+=("CATCHUP_TIMEZONE is empty")
+    elif ! python3 -c 'import sys, zoneinfo; zoneinfo.ZoneInfo(sys.argv[1])' "$CATCHUP_TIMEZONE" 2>/dev/null; then
+        errors+=("CATCHUP_TIMEZONE '$CATCHUP_TIMEZONE' is not a valid IANA timezone")
+    fi
+
+    local -a keys=()
+    local k
+    for k in "${!CHANNEL_MAP[@]}"; do keys+=("$k"); done
+    if (( ${#keys[@]} == 0 )); then
+        errors+=("CHANNEL_MAP is empty")
+    else
+        local val norm
+        for k in "${keys[@]}"; do
+            val="${CHANNEL_MAP[$k]}"
+            [[ -n "$val" ]] || errors+=("channel '$k' has an empty stream ID")
+            norm="$(_normalize_channel_name "$k")"
+            [[ "$k" == "$norm" ]] || warnings+=("channel key '$k' is not normalized (suggest '$norm')")
+        done
+    fi
+
+    local dups
+    dups="$(_dup_channel_keys "$name")"
+    [[ -n "$dups" ]] && errors+=("duplicate CHANNEL_MAP key(s): $dups")
+
+    # --- Warnings ---
+    if [[ "${CATCHUP_FORMAT_STYLE:-}" == "query" && -z "${CATCHUP_URL:-}" ]]; then
+        warnings+=("CATCHUP_URL is empty but CATCHUP_FORMAT_STYLE=query — record-catchup will fail")
+    fi
+    [[ "${BASE_URL:-}" == */ ]] && warnings+=("BASE_URL has a trailing slash")
+    command -v "${FFMPEG_BIN:-ffmpeg}"   >/dev/null 2>&1 || warnings+=("ffmpeg binary '${FFMPEG_BIN:-ffmpeg}' not resolvable on this host")
+    command -v "${FFPROBE_BIN:-ffprobe}" >/dev/null 2>&1 || warnings+=("ffprobe binary '${FFPROBE_BIN:-ffprobe}' not resolvable on this host")
+
+    # --- Report ---
+    echo "[$name]"
+    local e w
+    for e in "${errors[@]}";   do echo "  ERROR:   $e"; done
+    for w in "${warnings[@]}"; do echo "  WARNING: $w"; done
+    if (( ${#errors[@]} == 0 && ${#warnings[@]} == 0 )); then
+        echo "  OK"
+    else
+        echo "  -> ${#errors[@]} error(s), ${#warnings[@]} warning(s)"
+    fi
+    echo ""
+
+    _VALIDATE_ERRORS=${#errors[@]}
+}
+
+validate_config() {
+    local only=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -config) only="$2"; shift 2 ;;
+            *) die "Unknown option: $1" ;;
+        esac
+    done
+
+    local -a providers=()
+    if [[ -n "$only" ]]; then
+        type "config_${only}" &>/dev/null || die "Unknown config '$only'. Available: $(_list_providers | tr '\n' ' ')"
+        providers=("$only")
+    else
+        local p
+        while IFS= read -r p; do [[ -n "$p" ]] && providers+=("$p"); done < <(_list_providers)
+        (( ${#providers[@]} > 0 )) || die "No providers defined in $CONFIG_FILE"
+    fi
+
+    echo ""
+    echo "Validating $CONFIG_FILE"
+    echo ""
+
+    local total_err=0 prov
+    for prov in "${providers[@]}"; do
+        _validate_one "$prov"
+        total_err=$(( total_err + _VALIDATE_ERRORS ))
+    done
+
+    if (( total_err > 0 )); then
+        echo "validate-config: FAILED — $total_err error(s) across ${#providers[@]} provider(s)."
+        return 1
+    fi
+    echo "validate-config: OK — ${#providers[@]} provider(s) valid."
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -876,6 +1056,7 @@ usage() {
     echo "Commands:"
     echo "  setup-config    Interactive wizard to add a provider config or channel"
     echo "  list-channels   List all channels for a provider config"
+    echo "  validate-config Statically validate the config file (offline)"
     echo "  record-live     Record a live stream"
     echo "  record-catchup  Record a catch-up/timeshift stream"
     echo "  remove-jobs     Remove past scheduled IPTV cron entries"
@@ -885,6 +1066,9 @@ usage() {
     echo ""
     echo "list-channels options:"
     echo "  -config NAME            Provider config name (required)"
+    echo ""
+    echo "validate-config options:"
+    echo "  -config NAME            Validate one provider (default: all providers)"
     echo ""
     echo "record-live options:"
     echo "  -config NAME            Provider config name (required)"
@@ -921,6 +1105,9 @@ _bootstrap() {
     # Default to plain ffmpeg/ffprobe; config can override
     FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
     FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
+    # Baseline for per-provider validation.
+    _BASE_FFMPEG_BIN="$FFMPEG_BIN"
+    _BASE_FFPROBE_BIN="$FFPROBE_BIN"
 }
 
 main() {
@@ -930,12 +1117,13 @@ main() {
     _bootstrap "$command"
     mkdir -p "$LOG_DIR"
     case "$command" in
-        setup-config)   setup_config ;;
-        list-channels)  list_channels  "$@" ;;
-        record-live)    record_live    "$@" ;;
-        record-catchup) record_catchup "$@" ;;
-        remove-jobs)    remove_jobs ;;
-        help|--help|-h) usage ;;
+        setup-config)    setup_config ;;
+        list-channels)   list_channels   "$@" ;;
+        validate-config) validate_config "$@" ;;
+        record-live)     record_live     "$@" ;;
+        record-catchup)  record_catchup  "$@" ;;
+        remove-jobs)     remove_jobs ;;
+        help|--help|-h)  usage ;;
         *) die "Unknown command '$command'. Run '$0 help' for usage." ;;
     esac
 }

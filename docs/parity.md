@@ -37,7 +37,7 @@ batch.
 | `record-live` | ✅ `record_live` | ✅ `record_live` | 🟡 `Record-LiveIPTV` — invoked implicitly (no `record-live` verb); `-FirstAudioOnly` not reachable from CLI (see flags) |
 | `record-catchup` | ✅ `record_catchup` | ✅ `record_catchup` | 🟡 `Record-CatchupIPTV` — function exists but **no CLI dispatch**; dot-source only |
 | `remove-jobs` | ✅ `remove_jobs` — prunes past cron entries | ✅ `remove_jobs` — prunes past cron entries | 🟡 `Remove-Recording-Tasks` — prunes completed Task Scheduler tasks; **no CLI dispatch**; dot-source only |
-| `validate-config` | ❌ not yet | ❌ not yet | ❌ `deferred` |
+| `validate-config` | ✅ `validate_config` — static offline validation, `-config` or all | ✅ same | ❌ `deferred` |
 | `check-channels` | ❌ not yet | ❌ not yet | ❌ `deferred` |
 | `remove-provider` | ❌ not yet | ❌ not yet | ❌ `deferred` |
 | `remove-channel` | ❌ not yet | ❌ not yet | ❌ `deferred` |
@@ -78,6 +78,7 @@ batch.
 | ffmpeg / ffprobe binary override | ✅ `FFMPEG_BIN` / `FFPROBE_BIN` from config (default `ffmpeg`/`ffprobe`) | ✅ same, **plus `_resolve_bin` fallback**: if the configured binary is missing on the host it falls back to `ffmpeg`/`ffprobe` | ❌ `deferred` — `ffmpeg`/`ffprobe` are hardcoded string literals in every invocation; no override |
 | Default live audio mapping | 🟡 `-map 0:v? -map 0:a:0` (first audio track) | 🟡 `-map 0:v? -map 0:a:0` (first audio track) | 🟡 `-map 0:v? -map 0:a?` (**all** audio tracks) — differs from bash |
 | Output directory | 🟡 `$OUTPUT_DIR` from config | 🟡 `$OUTPUT_DIR` from config | 🟡 hardcoded `$HOME/Videos` — not configurable |
+| Fast load-guard before record | ✅ `_load_guard` — required fields, format style, non-empty map, OUTPUT_DIR | ✅ same | ❌ `deferred` |
 | Test harness (bats) | ✅ Linux suite under bash 4+ (assoc-array path) | ✅ macOS suite under bash 3.2 (shim path) | ❌ `deferred` — no PowerShell tests |
 | Source-without-dispatch / `IPTV_CONFIG_FILE` | ✅ main-guard (`BASH_SOURCE`==`$0`); config path overridable | ✅ same main-guard + override | ❌ `deferred` |
 

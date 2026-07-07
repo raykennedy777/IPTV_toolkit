@@ -107,6 +107,32 @@ config_myprovider() {
 ./iptv_toolkit.sh list-channels -config myprovider
 ```
 
+### Validate the config
+
+Statically check the config file — offline, no network. Reports hard **errors**
+(which block recording) and advisory **warnings**, grouped per provider.
+
+```sh
+# Validate every provider in the config file
+./iptv_toolkit.sh validate-config
+
+# Validate a single provider
+./iptv_toolkit.sh validate-config -config myprovider
+```
+
+Exit code is non-zero if any provider has errors (scriptable), zero if only
+warnings. Errors include: missing `USERNAME`/`PASSWORD`/`BASE_URL`, a
+`CATCHUP_FORMAT_STYLE` other than `query`/`path`, an invalid IANA
+`CATCHUP_TIMEZONE`, an empty `CHANNEL_MAP`, an empty stream ID, unset
+`OUTPUT_DIR`, and duplicate `CHANNEL_MAP` keys (which resolve differently on
+Linux vs macOS, so they are always flagged). Warnings include: an empty
+`CATCHUP_URL` with `CATCHUP_FORMAT_STYLE=query`, non-normalized channel keys, a
+trailing slash on `BASE_URL`, and an unresolvable `ffmpeg`/`ffprobe` binary.
+
+A fast subset of these checks (required fields, format style, non-empty channel
+map, `OUTPUT_DIR`) also runs automatically before every `record-*` command and
+fails fast with a clear message.
+
 ### Record a live stream
 
 ```sh

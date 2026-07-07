@@ -39,7 +39,7 @@ is_mac_script() {
 # defines functions (no dispatch). Points config at the fixture and loads the
 # provider definitions so cm_*/CHANNEL_MAP helpers are usable.
 source_toolkit() {
-    export IPTV_CONFIG_FILE="$FIXTURE_CONFIG"
+    export IPTV_CONFIG_FILE="${IPTV_CONFIG_FILE:-$FIXTURE_CONFIG}"
     export IPTV_TEST_OUTPUT_DIR="${BATS_TEST_TMPDIR:-/tmp}/iptv_out"
     setup_stubs
     # shellcheck disable=SC1090
@@ -53,8 +53,13 @@ source_toolkit() {
 # output/log dirs redirected into the per-test temp dir.
 run_toolkit() {
     run env \
-        IPTV_CONFIG_FILE="$FIXTURE_CONFIG" \
+        IPTV_CONFIG_FILE="${IPTV_CONFIG_FILE:-$FIXTURE_CONFIG}" \
         IPTV_TEST_OUTPUT_DIR="${BATS_TEST_TMPDIR:-/tmp}/iptv_out" \
         PATH="$STUBS_DIR:$PATH" \
         "$IPTV_BASH" "$TOOLKIT" "$@"
+}
+
+# Path to a named fixture file under tests/fixtures.
+fixture() {
+    printf '%s' "$REPO_ROOT/tests/fixtures/$1"
 }
