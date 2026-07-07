@@ -81,6 +81,7 @@ batch.
 | Output directory | 🟡 `$OUTPUT_DIR` from config | 🟡 `$OUTPUT_DIR` from config | 🟡 hardcoded `$HOME/Videos` — not configurable |
 | Fast load-guard before record | ✅ `_load_guard` — required fields, format style, non-empty map, OUTPUT_DIR | ✅ same | ❌ `deferred` |
 | Shared stream URL builders | ✅ `_live_stream_url` / `_catchup_stream_url` (record + check-channels) | ✅ same | ❌ `deferred` — URLs built inline |
+| Shell completion (bash + zsh) | ✅ `completions/*` — dynamic, registered for both basenames | ✅ same (shared files) | ❌ `deferred` |
 | Test harness (bats) | ✅ Linux suite under bash 4+ (assoc-array path) | ✅ macOS suite under bash 3.2 (shim path) | ❌ `deferred` — no PowerShell tests |
 | Source-without-dispatch / `IPTV_CONFIG_FILE` | ✅ main-guard (`BASH_SOURCE`==`$0`); config path overridable | ✅ same main-guard + override | ❌ `deferred` |
 

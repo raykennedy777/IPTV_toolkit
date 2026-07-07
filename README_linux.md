@@ -225,6 +225,39 @@ not exist, the command errors and lists what is available.
 
 Removes any `IPTV_record_*`-tagged cron entries whose scheduled time has already passed.
 
+## Shell completion
+
+Dynamic tab-completion is provided for both bash and zsh (in `completions/`).
+It completes subcommands, per-command flags, `-config` values (provider names
+parsed from your config file), and `-channel` values (scoped to the `-config`
+already on the command line). Completion parses the config with grep/sed/awk and
+never sources it. It is **not** auto-installed.
+
+**bash** — source it from `~/.bashrc`, or symlink into your bash-completion dir:
+
+```sh
+# Quick: source directly
+echo "source $PWD/completions/iptv_toolkit.bash" >> ~/.bashrc
+
+# Or symlink into the completion directory
+ln -s "$PWD/completions/iptv_toolkit.bash" /etc/bash_completion.d/iptv_toolkit          # Linux
+ln -s "$PWD/completions/iptv_toolkit.bash" /usr/local/etc/bash_completion.d/iptv_toolkit # macOS/Homebrew
+```
+
+**zsh** — put it on your `$fpath` as `_iptv_toolkit`, then run `compinit`:
+
+```sh
+mkdir -p ~/.zsh/completions
+ln -s "$PWD/completions/iptv_toolkit.zsh" ~/.zsh/completions/_iptv_toolkit
+# In ~/.zshrc, before compinit:
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit && compinit
+```
+
+Both are registered for `iptv_toolkit.sh` and `iptv_toolkit_mac.sh`. If no config
+file exists yet, completion still offers commands and flags. Set
+`IPTV_CONFIG_FILE` to complete against a non-default config path.
+
 ## How retry works
 
 If ffmpeg exits before the full duration is captured, the toolkit automatically retries from where it left off, saving each attempt as a numbered segment. Once the target duration is reached (or retries are exhausted), all segments are concatenated into a single output file.
