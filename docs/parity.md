@@ -38,14 +38,15 @@ batch.
 | `record-catchup` | ✅ `record_catchup` | ✅ `record_catchup` | 🟡 `Record-CatchupIPTV` — function exists but **no CLI dispatch**; dot-source only |
 | `remove-jobs` | ✅ `remove_jobs` — prunes past cron entries | ✅ `remove_jobs` — prunes past cron entries | 🟡 `Remove-Recording-Tasks` — prunes completed Task Scheduler tasks; **no CLI dispatch**; dot-source only |
 | `validate-config` | ✅ `validate_config` — static offline validation, `-config` or all | ✅ same | ❌ `deferred` |
-| `check-channels` | ❌ not yet | ❌ not yet | ❌ `deferred` |
+| `check-channels` | ✅ `check_channels` — ffprobe reachability probe, `-channel`/`-catchup` | ✅ same | ❌ `deferred` |
 | `remove-provider` | ❌ not yet | ❌ not yet | ❌ `deferred` |
 | `remove-channel` | ❌ not yet | ❌ not yet | ❌ `deferred` |
 
 > `validate-config`, `check-channels`, `remove-provider`, and `remove-channel`
-> are the new commands landing in this batch. They are ❌ everywhere today and
-> should be flipped to ✅ (Linux + macOS) as each feature merges; PowerShell
-> stays `deferred`.
+> are the new commands landing in this batch. PowerShell stays `deferred`.
+>
+> `check-channels` is **standalone**. Wiring reachability into the record
+> commands as a `-precheck` flag is a possible future item — ❌ everywhere today.
 
 ---
 
@@ -79,6 +80,7 @@ batch.
 | Default live audio mapping | 🟡 `-map 0:v? -map 0:a:0` (first audio track) | 🟡 `-map 0:v? -map 0:a:0` (first audio track) | 🟡 `-map 0:v? -map 0:a?` (**all** audio tracks) — differs from bash |
 | Output directory | 🟡 `$OUTPUT_DIR` from config | 🟡 `$OUTPUT_DIR` from config | 🟡 hardcoded `$HOME/Videos` — not configurable |
 | Fast load-guard before record | ✅ `_load_guard` — required fields, format style, non-empty map, OUTPUT_DIR | ✅ same | ❌ `deferred` |
+| Shared stream URL builders | ✅ `_live_stream_url` / `_catchup_stream_url` (record + check-channels) | ✅ same | ❌ `deferred` — URLs built inline |
 | Test harness (bats) | ✅ Linux suite under bash 4+ (assoc-array path) | ✅ macOS suite under bash 3.2 (shim path) | ❌ `deferred` — no PowerShell tests |
 | Source-without-dispatch / `IPTV_CONFIG_FILE` | ✅ main-guard (`BASH_SOURCE`==`$0`); config path overridable | ✅ same main-guard + override | ❌ `deferred` |
 

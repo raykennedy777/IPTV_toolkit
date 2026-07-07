@@ -69,6 +69,29 @@ load_config() {
 }
 
 # ---------------------------------------------------------------------------
+# Stream URL builders (shared by record-live / record-catchup / check-channels)
+# ---------------------------------------------------------------------------
+
+# Build the live stream URL for a channel stream id.
+_live_stream_url() {
+    local code="$1" suffix=""
+    [[ "$ADD_TS_SUFFIX" == true ]] && suffix=".ts"
+    printf '%s/%s/%s/%s%s' "$BASE_URL" "$USERNAME" "$PASSWORD" "$code" "$suffix"
+}
+
+# Build the catch-up URL: <code> <encoded_start> <duration_secs>.
+_catchup_stream_url() {
+    local code="$1" encoded_start="$2" duration="$3"
+    case "$CATCHUP_FORMAT_STYLE" in
+        query) printf '%s?username=%s&password=%s&stream=%s&start=%s&duration=%s' \
+                    "$CATCHUP_URL" "$USERNAME" "$PASSWORD" "$code" "$encoded_start" "$duration" ;;
+        path)  printf '%s/timeshift/%s/%s/%s/%s/%s.ts' \
+                    "$BASE_URL" "$USERNAME" "$PASSWORD" "$duration" "$encoded_start" "$code" ;;
+        *)     die "Unknown CATCHUP_FORMAT_STYLE: $CATCHUP_FORMAT_STYLE" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
 # URL parsing helpers (used by setup-config)
 # ---------------------------------------------------------------------------
 
@@ -477,9 +500,7 @@ record_live() {
 
     # --- Build URL and run ---
     local code="${CHANNEL_MAP[$channel]}"
-    local suffix=""
-    [[ "$ADD_TS_SUFFIX" == true ]] && suffix=".ts"
-    _live_url="${BASE_URL}/${USERNAME}/${PASSWORD}/${code}${suffix}"
+    _live_url="$(_live_stream_url "$code")"
 
     log "INFO" "URL: $_live_url"
 
@@ -530,11 +551,7 @@ _build_catchup_retry() {
 
     local new_encoded_start
     new_encoded_start="$(epoch_to_provider_tz "$new_epoch" "$CATCHUP_TIMEZONE")"
-
-    case "$CATCHUP_FORMAT_STYLE" in
-        query) retry_url="${CATCHUP_URL}?username=${USERNAME}&password=${PASSWORD}&stream=${_catchup_code}&start=${new_encoded_start}&duration=${_catchup_custom_duration}" ;;
-        path)  retry_url="${BASE_URL}/timeshift/${USERNAME}/${PASSWORD}/${_catchup_custom_duration}/${new_encoded_start}/${_catchup_code}.ts" ;;
-    esac
+    retry_url="$(_catchup_stream_url "$_catchup_code" "$new_encoded_start" "$_catchup_custom_duration")"
 
     local -a map_args=(-map "0:v?" -map "0:a:0")
     [[ "$_first_audio_only" == true ]] && map_args=(-map "0:a:0")
@@ -599,12 +616,7 @@ record_catchup() {
         _catchup_code="${CHANNEL_MAP[$chan]}"
         local output_path="${OUTPUT_DIR}/${chan}_${timestamp}.ts"
         local url
-
-        case "$CATCHUP_FORMAT_STYLE" in
-            query) url="${CATCHUP_URL}?username=${USERNAME}&password=${PASSWORD}&stream=${_catchup_code}&start=${encoded_start}&duration=${_catchup_custom_duration}" ;;
-            path)  url="${BASE_URL}/timeshift/${USERNAME}/${PASSWORD}/${_catchup_custom_duration}/${encoded_start}/${_catchup_code}.ts" ;;
-            *)     die "Unknown CATCHUP_FORMAT_STYLE: $CATCHUP_FORMAT_STYLE" ;;
-        esac
+        url="$(_catchup_stream_url "$_catchup_code" "$encoded_start" "$_catchup_custom_duration")"
 
         local -a map_args=(-map "0:v?" -map "0:a:0")
         [[ "$_first_audio_only" == true ]] && map_args=(-map "0:a:0")
@@ -1047,6 +1059,107 @@ validate_config() {
 }
 
 # ---------------------------------------------------------------------------
+# check-channels — probe stream reachability with ffprobe (no recording)
+# ---------------------------------------------------------------------------
+
+# Probe a URL with ffprobe. On success echoes "resolution|codecs" and returns 0;
+# on failure returns 1. ffprobe only — never records.
+_probe_stream() {
+    local url="$1" out
+    out="$("$FFPROBE_BIN" -v error -user_agent "Mozilla/5.0" -rw_timeout 15000000 \
+            -show_entries stream=codec_type,codec_name,width,height \
+            -of csv=p=0 "$url" 2>/dev/null)" || return 1
+    [[ -n "$out" ]] || return 1
+
+    local vcodec="" acodec="" resolution="" atracks=0
+    local ctype cname w h
+    while IFS=, read -r ctype cname w h; do
+        [[ -z "$ctype" ]] && continue
+        case "$ctype" in
+            video) vcodec="$cname"; [[ -n "$w" && -n "$h" ]] && resolution="${w}x${h}" ;;
+            audio) atracks=$(( atracks + 1 )); [[ -z "$acodec" ]] && acodec="$cname" ;;
+        esac
+    done <<< "$out"
+
+    local codecs="$vcodec"
+    [[ -n "$acodec" ]] && codecs="${codecs:+$codecs/}$acodec"
+    (( atracks > 0 )) && codecs="${codecs} (${atracks}a)"
+    printf '%s|%s' "${resolution:-?}" "${codecs:-?}"
+    return 0
+}
+
+check_channels() {
+    local config="" catchup=false
+    local -a channels=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -config)  config="$2"; shift 2 ;;
+            -channel) IFS=',' read -ra channels <<< "$2"; shift 2 ;;
+            -catchup) catchup=true; shift ;;
+            *) die "Unknown option: $1" ;;
+        esac
+    done
+    [[ -n "$config" ]] || die "-config is required"
+    load_config "$config"
+
+    # No -channel -> all channels for the provider (sorted).
+    if (( ${#channels[@]} == 0 )); then
+        local k
+        for k in $(printf '%s\n' "${!CHANNEL_MAP[@]}" | sort); do channels+=("$k"); done
+    else
+        local chan
+        for chan in "${channels[@]}"; do
+            [[ -v "CHANNEL_MAP[$chan]" ]] || die "Invalid channel '$chan'. Valid: ${!CHANNEL_MAP[*]}"
+        done
+    fi
+
+    # Synthetic catch-up start: now - 2h, short window.
+    local now_epoch start_epoch encoded_start probe_window=60
+    now_epoch="$(date +%s)"
+    start_epoch=$(( now_epoch - 7200 ))
+    encoded_start="$(epoch_to_provider_tz "$start_epoch" "$CATCHUP_TIMEZONE")"
+
+    local scope="live"
+    [[ "$catchup" == true ]] && scope="live + catch-up"
+    echo ""
+    echo "Checking channels for '$config' ($scope):"
+    echo ""
+    printf '  %-25s %-8s %-8s %-12s %s\n' "Channel" "Kind" "Status" "Resolution" "Codecs"
+    printf '  %-25s %-8s %-8s %-12s %s\n' "-------" "----" "------" "----------" "------"
+
+    local any_fail=0 chan code url info
+    for chan in "${channels[@]}"; do
+        code="${CHANNEL_MAP[$chan]}"
+
+        url="$(_live_stream_url "$code")"
+        if info="$(_probe_stream "$url")"; then
+            printf '  %-25s %-8s %-8s %-12s %s\n' "$chan" "live" "OK" "${info%%|*}" "${info#*|}"
+        else
+            printf '  %-25s %-8s %-8s %-12s %s\n' "$chan" "live" "FAIL" "-" "-"
+            any_fail=1
+        fi
+
+        if [[ "$catchup" == true ]]; then
+            url="$(_catchup_stream_url "$code" "$encoded_start" "$probe_window")"
+            if info="$(_probe_stream "$url")"; then
+                printf '  %-25s %-8s %-8s %-12s %s\n' "$chan" "catchup" "OK" "${info%%|*}" "${info#*|}"
+            else
+                printf '  %-25s %-8s %-8s %-12s %s\n' "$chan" "catchup" "FAIL" "-" "-"
+                any_fail=1
+            fi
+        fi
+    done
+    echo ""
+
+    if (( any_fail != 0 )); then
+        echo "check-channels: one or more channels failed."
+        return 1
+    fi
+    echo "check-channels: all probed channels reachable."
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1057,6 +1170,7 @@ usage() {
     echo "  setup-config    Interactive wizard to add a provider config or channel"
     echo "  list-channels   List all channels for a provider config"
     echo "  validate-config Statically validate the config file (offline)"
+    echo "  check-channels  Probe stream reachability with ffprobe (no recording)"
     echo "  record-live     Record a live stream"
     echo "  record-catchup  Record a catch-up/timeshift stream"
     echo "  remove-jobs     Remove past scheduled IPTV cron entries"
@@ -1069,6 +1183,11 @@ usage() {
     echo ""
     echo "validate-config options:"
     echo "  -config NAME            Validate one provider (default: all providers)"
+    echo ""
+    echo "check-channels options:"
+    echo "  -config NAME            Provider config name (required)"
+    echo "  -channel NAME[,NAME...] Channels to probe (default: all)"
+    echo "  -catchup                Also probe the catch-up endpoint (now - 2h)"
     echo ""
     echo "record-live options:"
     echo "  -config NAME            Provider config name (required)"
@@ -1120,6 +1239,7 @@ main() {
         setup-config)    setup_config ;;
         list-channels)   list_channels   "$@" ;;
         validate-config) validate_config "$@" ;;
+        check-channels)  check_channels  "$@" ;;
         record-live)     record_live     "$@" ;;
         record-catchup)  record_catchup  "$@" ;;
         remove-jobs)     remove_jobs ;;

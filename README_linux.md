@@ -133,6 +133,29 @@ A fast subset of these checks (required fields, format style, non-empty channel
 map, `OUTPUT_DIR`) also runs automatically before every `record-*` command and
 fails fast with a clear message.
 
+### Check channel reachability
+
+Probe streams with `ffprobe` **without recording** — a quick pre-flight before a
+scheduled recording. Reports reachability plus resolution/codecs/audio-track
+count in a table.
+
+```sh
+# Probe every channel's live stream
+./iptv_toolkit.sh check-channels -config myprovider
+
+# Probe specific channels
+./iptv_toolkit.sh check-channels -config myprovider -channel bbc_one,itv1
+
+# Also probe the catch-up endpoint (synthetic start of now − 2 hours)
+./iptv_toolkit.sh check-channels -config myprovider -channel bbc_one -catchup
+```
+
+Channels are probed sequentially with a short `ffprobe` timeout. Exit code is
+non-zero if any probed channel fails (scriptable). `-catchup` additionally
+verifies the timeshift endpoint using the provider's `CATCHUP_FORMAT_STYLE`, so
+you can confirm catch-up works with no date input. This never records — it only
+runs `ffprobe`.
+
 ### Record a live stream
 
 ```sh
