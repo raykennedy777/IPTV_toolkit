@@ -168,6 +168,64 @@ Each recording run writes a timestamped log file to the `logs/` folder in the sc
 - `logs/record_live_{channel}_{timestamp}.log`
 - `logs/record_catchup_{startAt}_{timestamp}.log`
 
+## Development / Testing
+
+The toolkit ships with a [bats](https://github.com/bats-core/bats-core) test suite.
+bats-core and its support libraries are **vendored** under `tests/vendor/`, so no
+system install is required — you only need `bash`, `python3`, and the standard
+tools already needed to run the toolkit. `ffmpeg`/`ffprobe` are stubbed during
+tests (real ffmpeg never runs and nothing touches the network).
+
+Run the full suite:
+
+```sh
+./tests/run.sh
+# or
+make test
+```
+
+`run.sh` runs the suite twice, once per implementation:
+
+- **macOS suite** — `iptv_toolkit_mac.sh` under the system bash 3.2, exercising
+  the `cm_*` string-shim channel-map path.
+- **Linux suite** — `iptv_toolkit.sh` under bash 4+, exercising the native
+  associative-array path.
+
+`iptv_toolkit.sh` uses bash-4-only syntax and cannot run under bash 3.2, so on a
+stock macOS host the Linux suite is **skipped** with a message unless a bash 4+
+is available. Install one with `brew install bash` (it lands at
+`/opt/homebrew/bin/bash` and leaves the system bash untouched), or point the
+runner at any bash 4+ with `IPTV_BASH4=/path/to/bash`.
+
+Run a single test file:
+
+```sh
+./tests/run.sh tests/url_building.bats
+```
+
+Optional lint (if `shellcheck` is installed):
+
+```sh
+make lint
+```
+
+### Test layout
+
+| Path | Purpose |
+|---|---|
+| `tests/run.sh` | Runner — drives both bash versions |
+| `tests/*.bats` | Test files (helpers, channel map, URL building, arg parsing, retry/merge) |
+| `tests/helpers/common.bash` | Shared setup (`source_toolkit`, `run_toolkit`, stubs) |
+| `tests/fixtures/iptv_configs.sh` | Fixture config with fake credentials (query + path styles) |
+| `tests/stubs/ffmpeg`, `tests/stubs/ffprobe` | Fake binaries put on `PATH` during tests |
+| `tests/vendor/` | Vendored bats-core + bats-support + bats-assert |
+
+The test harness points the toolkit at the fixture config via the
+`IPTV_CONFIG_FILE` environment variable (which overrides the default
+`Settings/iptv_configs.sh`), and both scripts are written so that `source`-ing
+them defines functions only — the command dispatch runs solely when the script
+is executed directly.
+
 ## Synology NAS notes
 
 ### ffmpeg version

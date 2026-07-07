@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Fake ffprobe for the bats suite. Returns canned duration / stream info; never
+# touches the network.
+#
+# Behavior:
+#   - Duration queries (measure_duration): reports, in priority order,
+#       1. the "<file>.dur" sidecar written by the fake ffmpeg (honors -t),
+#       2. $FFPROBE_STUB_DURATION,
+#       3. a default of 300 seconds.
+#     For the packet-count fallback query it prints "<packets>,50/1".
+#   - Optional env hooks for tests:
+#       FFPROBE_STUB_LOG          append each full invocation (one per line)
+#       FFPROBE_STUB_DURATION     override the reported duration (seconds)
+#       FFPROBE_STUB_UNREACHABLE  if this substring appears in the args, exit 1
+#                                 (simulates an unreachable stream/URL)
+#       FFPROBE_STUB_RESOLUTION   reported "WxH" (default 1920x1080)
+#       FFPROBE_STUB_VCODEC       reported video codec (default h264)
+#       FFPROBE_STUB_ACODEC       reported audio codec (default aac)
+#       FFPROBE_STUB_ATRACKS      number of audio streams to report (default 1)
+
+args=("$@")
+
+if [[ -n "${FFPROBE_STUB_LOG:-}" ]]; then
+    printf '%s\n' "$*" >> "$FFPROBE_STUB_LOG"
+fi
+
+# Simulate an unreachable stream when the marker substring is present.
+if [[ -n "${FFPROBE_STUB_UNREACHABLE:-}" && "$*" == *"${FFPROBE_STUB_UNREACHABLE}"* ]]; then
+    exit 1
+fi
+
+file="${args[$(( ${#args[@]} - 1 ))]}"
+
+# Duration priority: explicit env override, then the fake-ffmpeg sidecar
+# (honors -t), then a default. The env override lets tests force short segments
+# to exercise the retry/merge path.
+if [[ -n "${FFPROBE_STUB_DURATION:-}" ]]; then
+    dur="${FFPROBE_STUB_DURATION}"
+elif [[ -f "${file}.dur" ]]; then
+    dur="$(cat "${file}.dur")"
+else
+    dur="300"
+fi
+
+resolution="${FFPROBE_STUB_RESOLUTION:-1920x1080}"
+vcodec="${FFPROBE_STUB_VCODEC:-h264}"
+acodec="${FFPROBE_STUB_ACODEC:-aac}"
+atracks="${FFPROBE_STUB_ATRACKS:-1}"
+
+case "$*" in
+    *nb_read_packets*)
+        # measure_duration packet-count fallback: "packets,fps"
+        printf '%s,50/1\n' "$(( dur * 50 ))"
+        ;;
+    *codec_type*)
+        # Stream listing used by check-channels: csv "codec_type,codec_name,width,height".
+        printf 'video,%s,%s,%s\n' "$vcodec" "${resolution%x*}" "${resolution#*x}"
+        n=0
+        while (( n < atracks )); do
+            printf 'audio,%s,,\n' "$acodec"
+            n=$(( n + 1 ))
+        done
+        ;;
+    *width*|*height*)
+        printf '%s\n' "${resolution%x*}"
+        printf '%s\n' "${resolution#*x}"
+        ;;
+    *codec_name*)
+        printf '%s\n' "$vcodec"
+        ;;
+    *duration*)
+        printf '%s\n' "$dur"
+        ;;
+    *)
+        printf '%s\n' "$dur"
+        ;;
+esac
+
+exit 0

@@ -6,7 +6,9 @@
 # on hosts where that binary is missing this script falls back to ffmpeg/ffprobe.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/Settings/iptv_configs.sh"
+# Config path is overridable via IPTV_CONFIG_FILE (used by the test harness);
+# defaults to the shared Settings/iptv_configs.sh next to the script.
+CONFIG_FILE="${IPTV_CONFIG_FILE:-$SCRIPT_DIR/Settings/iptv_configs.sh}"
 
 # ---------------------------------------------------------------------------
 # bash 3.2 compatibility shims
@@ -56,31 +58,19 @@ cm_keys() { sed -n 's/.*\["\([^"]*\)"\].*/\1/p' <<<"$_CHANNEL_MAP_STR"; }
 cm_has()  { cm_keys | grep -qx "$1"; }
 cm_get()  { sed -n "s/.*\[\"$1\"\]=\"\([^\"]*\)\".*/\1/p" <<<"$_CHANNEL_MAP_STR"; }
 
-# Peek at the first argument — setup-config must run even when the config file doesn't exist yet
-_CMD="${1:-}"
-if [[ "$_CMD" != "setup-config" ]]; then
-    [[ -f "$CONFIG_FILE" ]] || { echo "Error: Config not found at $CONFIG_FILE" >&2; exit 1; }
-    # shellcheck source=Settings/iptv_configs.sh
-    _CONFIG_TMP="$(mktemp "${TMPDIR:-/tmp}/iptv_cfg.XXXXXX.sh")"
-    _config_to_bash3 "$CONFIG_FILE" > "$_CONFIG_TMP"
-    source "$_CONFIG_TMP"
-    rm -f "$_CONFIG_TMP"
-fi
-
-# Default to plain ffmpeg/ffprobe; config can override (load_config may remap these)
-FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
-FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
-
 # Logging setup — write logs to $SCRIPT_DIR/logs with timestamps
 LOG_DIR="${SCRIPT_DIR}/logs"
-mkdir -p "$LOG_DIR"
 # Global log file path (set at start of each command)
 LOG_FILE=""
 
 log() {
     local level="${1:-INFO}"
     local msg="${2:->}"
-    printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" | tee -a "$LOG_FILE" >&2
+    if [[ -n "$LOG_FILE" ]]; then
+        printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" | tee -a "$LOG_FILE" >&2
+    else
+        printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" >&2
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -665,6 +655,7 @@ record_catchup() {
 
         [[ "$chan" != "$last_chan" ]] && sleep 3
     done
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -971,15 +962,43 @@ usage() {
     echo "DateTime format: yyyy-MM-dd:HH-mm  (e.g. 2026-03-01:20-00)"
 }
 
-[[ $# -gt 0 ]] || { usage; exit 1; }
+# Load the provider config file and apply ffmpeg/ffprobe defaults. The config
+# is rewritten on the fly (declare -gA -> _CHANNEL_MAP_STR) so the shared
+# bash-4 config format is sourceable under bash 3.2. Skipped for setup-config,
+# which may need to create the config file first.
+_bootstrap() {
+    local cmd="${1:-}"
+    if [[ "$cmd" != "setup-config" ]]; then
+        [[ -f "$CONFIG_FILE" ]] || { echo "Error: Config not found at $CONFIG_FILE" >&2; exit 1; }
+        # shellcheck source=Settings/iptv_configs.sh
+        _CONFIG_TMP="$(mktemp "${TMPDIR:-/tmp}/iptv_cfg.XXXXXX.sh")"
+        _config_to_bash3 "$CONFIG_FILE" > "$_CONFIG_TMP"
+        source "$_CONFIG_TMP"
+        rm -f "$_CONFIG_TMP"
+    fi
+    # Default to plain ffmpeg/ffprobe; config can override (load_config may remap these)
+    FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
+    FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
+}
 
-command="$1"; shift
-case "$command" in
-    setup-config)   setup_config ;;
-    list-channels)  list_channels  "$@" ;;
-    record-live)    record_live    "$@" ;;
-    record-catchup) record_catchup "$@" ;;
-    remove-jobs)    remove_jobs ;;
-    help|--help|-h) usage ;;
-    *) die "Unknown command '$command'. Run '$0 help' for usage." ;;
-esac
+main() {
+    [[ $# -gt 0 ]] || { usage; exit 1; }
+
+    local command="$1"; shift
+    _bootstrap "$command"
+    mkdir -p "$LOG_DIR"
+    case "$command" in
+        setup-config)   setup_config ;;
+        list-channels)  list_channels  "$@" ;;
+        record-live)    record_live    "$@" ;;
+        record-catchup) record_catchup "$@" ;;
+        remove-jobs)    remove_jobs ;;
+        help|--help|-h) usage ;;
+        *) die "Unknown command '$command'. Run '$0 help' for usage." ;;
+    esac
+}
+
+# Run only when executed directly, not when sourced (e.g. by the test harness).
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

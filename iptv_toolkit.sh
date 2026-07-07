@@ -4,30 +4,23 @@
 # Set FFMPEG_BIN in iptv_configs.sh to use a non-default binary (e.g. ffmpeg7)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/Settings/iptv_configs.sh"
-
-# Peek at the first argument — setup-config must run even when the config file doesn't exist yet
-_CMD="${1:-}"
-if [[ "$_CMD" != "setup-config" ]]; then
-    [[ -f "$CONFIG_FILE" ]] || { echo "Error: Config not found at $CONFIG_FILE" >&2; exit 1; }
-    # shellcheck source=Settings/iptv_configs.sh
-    source "$CONFIG_FILE"
-fi
-
-# Default to plain ffmpeg/ffprobe; config can override
-FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
-FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
+# Config path is overridable via IPTV_CONFIG_FILE (used by the test harness);
+# defaults to the shared Settings/iptv_configs.sh next to the script.
+CONFIG_FILE="${IPTV_CONFIG_FILE:-$SCRIPT_DIR/Settings/iptv_configs.sh}"
 
 # Logging setup — write logs to $SCRIPT_DIR/logs with timestamps
 LOG_DIR="${SCRIPT_DIR}/logs"
-mkdir -p "$LOG_DIR"
 # Global log file path (set at start of each command)
 LOG_FILE=""
 
 log() {
     local level="${1:-INFO}"
     local msg="${2:->}"
-    printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" | tee -a "$LOG_FILE" >&2
+    if [[ -n "$LOG_FILE" ]]; then
+        printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" | tee -a "$LOG_FILE" >&2
+    else
+        printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$msg" >&2
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -609,6 +602,7 @@ record_catchup() {
 
         [[ "$chan" != "$last_chan" ]] && sleep 3
     done
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -915,15 +909,38 @@ usage() {
     echo "DateTime format: yyyy-MM-dd:HH-mm  (e.g. 2026-03-01:20-00)"
 }
 
-[[ $# -gt 0 ]] || { usage; exit 1; }
+# Load the provider config file and apply ffmpeg/ffprobe defaults. Skipped for
+# setup-config, which may need to create the config file first.
+_bootstrap() {
+    local cmd="${1:-}"
+    if [[ "$cmd" != "setup-config" ]]; then
+        [[ -f "$CONFIG_FILE" ]] || { echo "Error: Config not found at $CONFIG_FILE" >&2; exit 1; }
+        # shellcheck source=Settings/iptv_configs.sh
+        source "$CONFIG_FILE"
+    fi
+    # Default to plain ffmpeg/ffprobe; config can override
+    FFMPEG_BIN="${FFMPEG_BIN:-ffmpeg}"
+    FFPROBE_BIN="${FFPROBE_BIN:-ffprobe}"
+}
 
-command="$1"; shift
-case "$command" in
-    setup-config)   setup_config ;;
-    list-channels)  list_channels  "$@" ;;
-    record-live)    record_live    "$@" ;;
-    record-catchup) record_catchup "$@" ;;
-    remove-jobs)    remove_jobs ;;
-    help|--help|-h) usage ;;
-    *) die "Unknown command '$command'. Run '$0 help' for usage." ;;
-esac
+main() {
+    [[ $# -gt 0 ]] || { usage; exit 1; }
+
+    local command="$1"; shift
+    _bootstrap "$command"
+    mkdir -p "$LOG_DIR"
+    case "$command" in
+        setup-config)   setup_config ;;
+        list-channels)  list_channels  "$@" ;;
+        record-live)    record_live    "$@" ;;
+        record-catchup) record_catchup "$@" ;;
+        remove-jobs)    remove_jobs ;;
+        help|--help|-h) usage ;;
+        *) die "Unknown command '$command'. Run '$0 help' for usage." ;;
+    esac
+}
+
+# Run only when executed directly, not when sourced (e.g. by the test harness).
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
