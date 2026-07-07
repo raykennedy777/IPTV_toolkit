@@ -1160,6 +1160,114 @@ check_channels() {
 }
 
 # ---------------------------------------------------------------------------
+# remove-provider / remove-channel — edit the config file in place
+# ---------------------------------------------------------------------------
+
+# Delete the whole config_NAME() block from the config file text.
+_py_remove_provider() {
+    python3 - "$CONFIG_FILE" "$1" <<'PYEOF'
+import sys, re
+config_file, provider = sys.argv[1:3]
+content = open(config_file).read()
+m = re.search(r'(?m)^config_%s\s*\(\)' % re.escape(provider), content)
+if not m:
+    print("ERROR: provider not found", file=sys.stderr); sys.exit(1)
+cm = re.search(r'(?m)^\}', content[m.end():])
+if not cm:
+    print("ERROR: closing brace not found", file=sys.stderr); sys.exit(1)
+start, end = m.start(), m.end() + cm.end()
+if end < len(content) and content[end] == '\n':
+    end += 1
+new = content[:start] + content[end:]
+new = re.sub(r'\n{3,}', '\n\n', new)
+open(config_file, 'w').write(new)
+PYEOF
+}
+
+# Delete a single ["channel"]="..." entry from a provider's CHANNEL_MAP.
+_py_remove_channel() {
+    python3 - "$CONFIG_FILE" "$1" "$2" <<'PYEOF'
+import sys, re
+config_file, provider, channel = sys.argv[1:4]
+content = open(config_file).read()
+m = re.search(r'(?m)^config_%s\s*\(\)' % re.escape(provider), content)
+if not m:
+    print("ERROR: provider not found", file=sys.stderr); sys.exit(1)
+cm = re.search(r'(?m)^\}', content[m.end():])
+block_end = m.end() + cm.start()
+block = content[m.end():block_end]
+pattern = re.compile(r'(?m)^[ \t]*\[\s*"%s"\s*\]\s*=\s*"[^"]*"[ \t]*\n' % re.escape(channel))
+new_block, n = pattern.subn('', block)
+if n == 0:
+    print("ERROR: channel not found", file=sys.stderr); sys.exit(1)
+new = content[:m.end()] + new_block + content[block_end:]
+open(config_file, 'w').write(new)
+PYEOF
+}
+
+remove_provider() {
+    local config=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -config) config="$2"; shift 2 ;;
+            *) die "Unknown option: $1" ;;
+        esac
+    done
+    [[ -n "$config" ]] || die "-config is required"
+    type "config_${config}" &>/dev/null || die "Provider '$config' not found. Available: $(_list_providers | tr '\n' ' ')"
+
+    _run_config_fn "$config"
+    local n chans
+    n=${#CHANNEL_MAP[@]}
+    chans="$(printf '%s\n' "${!CHANNEL_MAP[@]}" | sort | tr '\n' ' ')"
+
+    echo ""
+    echo "This will delete the whole config_${config}() block from:"
+    echo "  $CONFIG_FILE"
+    echo "  ($n channel(s): $chans)"
+    echo ""
+    read -rp "Remove provider '$config'? [y/N]: " _yn
+    [[ "${_yn,,}" == "y" ]] || { echo "Aborted — nothing changed."; return 0; }
+
+    if _py_remove_provider "$config"; then
+        echo "Removed provider '$config'."
+    else
+        die "Failed to edit $CONFIG_FILE."
+    fi
+}
+
+remove_channel() {
+    local config="" channel=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -config)  config="$2";  shift 2 ;;
+            -channel) channel="$2"; shift 2 ;;
+            *) die "Unknown option: $1" ;;
+        esac
+    done
+    [[ -n "$config" ]]  || die "-config is required"
+    [[ -n "$channel" ]] || die "-channel is required"
+    type "config_${config}" &>/dev/null || die "Provider '$config' not found. Available: $(_list_providers | tr '\n' ' ')"
+
+    _run_config_fn "$config"
+    [[ -v "CHANNEL_MAP[$channel]" ]] || die "Channel '$channel' not found in '$config'. Available: $(printf '%s\n' "${!CHANNEL_MAP[@]}" | sort | tr '\n' ' ')"
+    local id="${CHANNEL_MAP[$channel]}"
+
+    echo ""
+    echo "This will remove channel '$channel' (stream ID: $id) from provider '$config' in:"
+    echo "  $CONFIG_FILE"
+    echo ""
+    read -rp "Remove channel '$channel'? [y/N]: " _yn
+    [[ "${_yn,,}" == "y" ]] || { echo "Aborted — nothing changed."; return 0; }
+
+    if _py_remove_channel "$config" "$channel"; then
+        echo "Removed channel '$channel' from '$config'."
+    else
+        die "Failed to edit $CONFIG_FILE."
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1173,6 +1281,8 @@ usage() {
     echo "  check-channels  Probe stream reachability with ffprobe (no recording)"
     echo "  record-live     Record a live stream"
     echo "  record-catchup  Record a catch-up/timeshift stream"
+    echo "  remove-provider Delete a whole provider from the config file"
+    echo "  remove-channel  Delete one channel from a provider's CHANNEL_MAP"
     echo "  remove-jobs     Remove past scheduled IPTV cron entries"
     echo ""
     echo "setup-config:"
@@ -1209,6 +1319,13 @@ usage() {
     echo "  -dry-run                Print ffmpeg command without running"
     echo "  -custom-duration N      Timeshift window in seconds (default: 300)"
     echo ""
+    echo "remove-provider options:"
+    echo "  -config NAME            Provider config name to delete (required)"
+    echo ""
+    echo "remove-channel options:"
+    echo "  -config NAME            Provider config name (required)"
+    echo "  -channel NAME           Channel to delete (required)"
+    echo ""
     echo "DateTime format: yyyy-MM-dd:HH-mm  (e.g. 2026-03-01:20-00)"
 }
 
@@ -1242,6 +1359,8 @@ main() {
         check-channels)  check_channels  "$@" ;;
         record-live)     record_live     "$@" ;;
         record-catchup)  record_catchup  "$@" ;;
+        remove-provider) remove_provider "$@" ;;
+        remove-channel)  remove_channel  "$@" ;;
         remove-jobs)     remove_jobs ;;
         help|--help|-h)  usage ;;
         *) die "Unknown command '$command'. Run '$0 help' for usage." ;;

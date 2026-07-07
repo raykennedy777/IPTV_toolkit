@@ -39,8 +39,8 @@ batch.
 | `remove-jobs` | ✅ `remove_jobs` — prunes past cron entries | ✅ `remove_jobs` — prunes past cron entries | 🟡 `Remove-Recording-Tasks` — prunes completed Task Scheduler tasks; **no CLI dispatch**; dot-source only |
 | `validate-config` | ✅ `validate_config` — static offline validation, `-config` or all | ✅ same | ❌ `deferred` |
 | `check-channels` | ✅ `check_channels` — ffprobe reachability probe, `-channel`/`-catchup` | ✅ same | ❌ `deferred` |
-| `remove-provider` | ❌ not yet | ❌ not yet | ❌ `deferred` |
-| `remove-channel` | ❌ not yet | ❌ not yet | ❌ `deferred` |
+| `remove-provider` | ✅ `remove_provider` — interactive, in-place (mirrors `setup-config` add-provider) | ✅ same | ❌ `deferred` |
+| `remove-channel` | ✅ `remove_channel` — interactive, in-place (mirrors `setup-config` add-channel) | ✅ same | ❌ `deferred` |
 
 > `validate-config`, `check-channels`, `remove-provider`, and `remove-channel`
 > are the new commands landing in this batch. PowerShell stays `deferred`.

@@ -199,6 +199,24 @@ Catch-up records a past broadcast by its original air time. `-start-at` uses you
 
 > `-custom-duration` sets the timeshift window (in seconds) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
 
+### Remove a provider or channel
+
+Mirror of `setup-config`'s two add-modes. Both edit `iptv_configs.sh` in place
+after an interactive `[y/N]` confirmation (there is no backup file and no
+`-dry-run` — the confirmation is the safeguard).
+
+```sh
+# Delete a whole provider (its config_<name>() block)
+./iptv_toolkit.sh remove-provider -config myprovider
+
+# Delete one channel from a provider's CHANNEL_MAP
+./iptv_toolkit.sh remove-channel -config myprovider -channel bbc_one
+```
+
+The confirmation prompt shows exactly what will be removed (the provider block
+summary, or the channel key + stream ID). If the named provider or channel does
+not exist, the command errors and lists what is available.
+
 ### Remove past scheduled jobs
 
 ```sh

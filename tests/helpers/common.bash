@@ -63,3 +63,24 @@ run_toolkit() {
 fixture() {
     printf '%s' "$REPO_ROOT/tests/fixtures/$1"
 }
+
+# Like run_toolkit, but feeds the first argument to the command's stdin (for
+# interactive [y/N] confirmations). Remaining args are the toolkit args.
+run_toolkit_input() {
+    local input="$1"; shift
+    run env \
+        IPTV_CONFIG_FILE="${IPTV_CONFIG_FILE:-$FIXTURE_CONFIG}" \
+        IPTV_TEST_OUTPUT_DIR="${BATS_TEST_TMPDIR:-/tmp}/iptv_out" \
+        PATH="$STUBS_DIR:$PATH" \
+        "$IPTV_BASH" "$TOOLKIT" "$@" <<< "$input"
+}
+
+# Copy a fixture into the per-test temp dir and point IPTV_CONFIG_FILE at the
+# copy, so in-place edits (remove-provider/remove-channel) don't touch the
+# committed fixtures. Echoes the copy path.
+writable_config() {
+    local src="$1" dst="${BATS_TEST_TMPDIR}/config_under_test.sh"
+    cp "$src" "$dst"
+    export IPTV_CONFIG_FILE="$dst"
+    printf '%s' "$dst"
+}
