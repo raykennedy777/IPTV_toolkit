@@ -195,13 +195,13 @@ Catch-up records a past broadcast by its original air time. `-start-at` uses you
 # Dry run
 ./iptv_toolkit.sh record-catchup -config myprovider -channel bbc_one -start-at "2026-03-01:20-00" -duration-minutes 90 -dry-run
 
-# Custom timeshift window (default: 300 seconds)
+# Custom timeshift window (default: 300 minutes)
 ./iptv_toolkit.sh record-catchup -config myprovider -channel bbc_one -start-at "2026-03-01:20-00" -duration-minutes 90 -custom-duration 600
 ```
 
 > Note: multiple channels are recorded sequentially (not in parallel) to stay within single-stream provider limits.
 
-> `-custom-duration` sets the timeshift window (in seconds) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
+> `-custom-duration` sets the timeshift window (in minutes) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
 
 ### Remove a provider or channel
 

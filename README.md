@@ -125,13 +125,13 @@ Record-CatchupIPTV -Config myprovider -Channel bbc_one,itv1 -StartAt "2025-06-01
 # Dry run
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90 -DryRun
 
-# Custom timeshift window (default: 300 seconds)
+# Custom timeshift window (default: 300 minutes)
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90 -CustomDuration 600
 ```
 
 > Note: multiple channels are recorded sequentially (not in parallel) to stay within single-stream provider limits.
 
-> `-CustomDuration` sets the timeshift window (in seconds) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
+> `-CustomDuration` sets the timeshift window (in minutes) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
 
 ### Clean up completed scheduled tasks
 

@@ -1387,7 +1387,7 @@ usage() {
     echo "  -no-remux               Keep output as .ts"
     echo "  -first-audio-only       Record first audio track only (no video)"
     echo "  -dry-run                Print ffmpeg command without running"
-    echo "  -custom-duration N      Timeshift window in seconds (default: 300)"
+    echo "  -custom-duration N      Timeshift window in minutes (default: 300)"
     echo ""
     echo "remove-provider options:"
     echo "  -config NAME            Provider config name to delete (required)"

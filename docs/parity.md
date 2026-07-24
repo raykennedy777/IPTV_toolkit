@@ -59,7 +59,7 @@ batch.
 | `-no-remux` | ✅ live + catch-up | ✅ live + catch-up | ✅ `-NoRemux` (catch-up dot-source only) |
 | `-first-audio-only` | ✅ live + catch-up (`-map 0:a:0`) | ✅ live + catch-up (`-map 0:a:0`) | 🟡 `-FirstAudioOnly` defined on both functions but **not in the top-level `param()` block and not passed by the CLI dispatcher** — only usable when dot-sourced |
 | `-dry-run` | ✅ live + catch-up | ✅ live + catch-up | ✅ `-DryRun` |
-| `-custom-duration` | ✅ catch-up (default 300s) | ✅ catch-up (default 300s) | 🟡 `-CustomDuration` (default 300) — catch-up dot-source only |
+| `-custom-duration` | ✅ catch-up (default 300 min) | ✅ catch-up (default 300 min) | 🟡 `-CustomDuration` (default 300) — catch-up dot-source only |
 | `-channel` (multi, comma list) | ✅ catch-up splits on `,` via `IFS=',' read -ra` | ✅ same | 🟡 `[string[]]$Channel` (native array) — catch-up dot-source only. Live is single-channel everywhere |
 
 ---
