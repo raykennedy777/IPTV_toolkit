@@ -3,6 +3,10 @@
 Bash script for recording live and catch-up IPTV streams on Linux using ffmpeg.
 Designed for headless use on a Synology NAS but works on any Linux system.
 
+`iptv_toolkit.sh` targets bash 4+; `iptv_toolkit_mac.sh` is the bash 3.2 port for
+macOS and shares the same config file. [docs/parity.md](docs/parity.md) tracks
+what each implementation (Linux, macOS, PowerShell) supports.
+
 ## Requirements
 
 - bash 4+
@@ -107,6 +111,55 @@ config_myprovider() {
 ./iptv_toolkit.sh list-channels -config myprovider
 ```
 
+### Validate the config
+
+Statically check the config file — offline, no network. Reports hard **errors**
+(which block recording) and advisory **warnings**, grouped per provider.
+
+```sh
+# Validate every provider in the config file
+./iptv_toolkit.sh validate-config
+
+# Validate a single provider
+./iptv_toolkit.sh validate-config -config myprovider
+```
+
+Exit code is non-zero if any provider has errors (scriptable), zero if only
+warnings. Errors include: missing `USERNAME`/`PASSWORD`/`BASE_URL`, a
+`CATCHUP_FORMAT_STYLE` other than `query`/`path`, an invalid IANA
+`CATCHUP_TIMEZONE`, an empty `CHANNEL_MAP`, an empty stream ID, unset
+`OUTPUT_DIR`, and duplicate `CHANNEL_MAP` keys (which resolve differently on
+Linux vs macOS, so they are always flagged). Warnings include: an empty
+`CATCHUP_URL` with `CATCHUP_FORMAT_STYLE=query`, non-normalized channel keys, a
+trailing slash on `BASE_URL`, and an unresolvable `ffmpeg`/`ffprobe` binary.
+
+A fast subset of these checks (required fields, format style, non-empty channel
+map, `OUTPUT_DIR`) also runs automatically before every `record-*` command and
+fails fast with a clear message.
+
+### Check channel reachability
+
+Probe streams with `ffprobe` **without recording** — a quick pre-flight before a
+scheduled recording. Reports reachability plus resolution/codecs/audio-track
+count in a table.
+
+```sh
+# Probe every channel's live stream
+./iptv_toolkit.sh check-channels -config myprovider
+
+# Probe specific channels
+./iptv_toolkit.sh check-channels -config myprovider -channel bbc_one,itv1
+
+# Also probe the catch-up endpoint (synthetic start of now − 2 hours)
+./iptv_toolkit.sh check-channels -config myprovider -channel bbc_one -catchup
+```
+
+Channels are probed sequentially with a short `ffprobe` timeout. Exit code is
+non-zero if any probed channel fails (scriptable). `-catchup` additionally
+verifies the timeshift endpoint using the provider's `CATCHUP_FORMAT_STYLE`, so
+you can confirm catch-up works with no date input. This never records — it only
+runs `ffprobe`.
+
 ### Record a live stream
 
 ```sh
@@ -126,7 +179,7 @@ config_myprovider() {
 ./iptv_toolkit.sh record-live -config myprovider -channel bbc_one -duration-minutes 90 -dry-run
 ```
 
-Output files are saved to `OUTPUT_DIR` as `channelname_YYYYMMDD_HHmm.ts` (or `.mkv` after remux).
+Output files are saved to `OUTPUT_DIR` as `channelname_YYYYMMDD_HHmm_config.ts` (or `.mkv` after remux). The config name is appended so simultaneous recordings of the same channel from different providers don't collide.
 
 ### Record a catch-up stream
 
@@ -148,7 +201,25 @@ Catch-up records a past broadcast by its original air time. `-start-at` uses you
 
 > Note: multiple channels are recorded sequentially (not in parallel) to stay within single-stream provider limits.
 
-> `-custom-duration` sets the timeshift window (in seconds) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
+> `-custom-duration` sets the timeshift window (in minutes) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
+
+### Remove a provider or channel
+
+Mirror of `setup-config`'s two add-modes. Both edit `iptv_configs.sh` in place
+after an interactive `[y/N]` confirmation (there is no backup file and no
+`-dry-run` — the confirmation is the safeguard).
+
+```sh
+# Delete a whole provider (its config_<name>() block)
+./iptv_toolkit.sh remove-provider -config myprovider
+
+# Delete one channel from a provider's CHANNEL_MAP
+./iptv_toolkit.sh remove-channel -config myprovider -channel bbc_one
+```
+
+The confirmation prompt shows exactly what will be removed (the provider block
+summary, or the channel key + stream ID). If the named provider or channel does
+not exist, the command errors and lists what is available.
 
 ### Remove past scheduled jobs
 
@@ -158,6 +229,39 @@ Catch-up records a past broadcast by its original air time. `-start-at` uses you
 
 Removes any `IPTV_record_*`-tagged cron entries whose scheduled time has already passed.
 
+## Shell completion
+
+Dynamic tab-completion is provided for both bash and zsh (in `completions/`).
+It completes subcommands, per-command flags, `-config` values (provider names
+parsed from your config file), and `-channel` values (scoped to the `-config`
+already on the command line). Completion parses the config with grep/sed/awk and
+never sources it. It is **not** auto-installed.
+
+**bash** — source it from `~/.bashrc`, or symlink into your bash-completion dir:
+
+```sh
+# Quick: source directly
+echo "source $PWD/completions/iptv_toolkit.bash" >> ~/.bashrc
+
+# Or symlink into the completion directory
+ln -s "$PWD/completions/iptv_toolkit.bash" /etc/bash_completion.d/iptv_toolkit          # Linux
+ln -s "$PWD/completions/iptv_toolkit.bash" /usr/local/etc/bash_completion.d/iptv_toolkit # macOS/Homebrew
+```
+
+**zsh** — put it on your `$fpath` as `_iptv_toolkit`, then run `compinit`:
+
+```sh
+mkdir -p ~/.zsh/completions
+ln -s "$PWD/completions/iptv_toolkit.zsh" ~/.zsh/completions/_iptv_toolkit
+# In ~/.zshrc, before compinit:
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit && compinit
+```
+
+Both are registered for `iptv_toolkit.sh` and `iptv_toolkit_mac.sh`. If no config
+file exists yet, completion still offers commands and flags. Set
+`IPTV_CONFIG_FILE` to complete against a non-default config path.
+
 ## How retry works
 
 If ffmpeg exits before the full duration is captured, the toolkit automatically retries from where it left off, saving each attempt as a numbered segment. Once the target duration is reached (or retries are exhausted), all segments are concatenated into a single output file.
@@ -165,8 +269,67 @@ If ffmpeg exits before the full duration is captured, the toolkit automatically 
 ## Logging
 
 Each recording run writes a timestamped log file to the `logs/` folder in the script directory:
-- `logs/record_live_{channel}_{timestamp}.log`
-- `logs/record_catchup_{startAt}_{timestamp}.log`
+- `logs/record_live_{channel}_{timestamp}_{config}.log`
+- `logs/record_catchup_{startAt}_{timestamp}_{config}.log`
+
+## Development / Testing
+
+The toolkit ships with a [bats](https://github.com/bats-core/bats-core) test suite.
+bats-core and its support libraries are **vendored** under `tests/vendor/`, so no
+system install is required — you only need `bash`, `python3`, and the standard
+tools already needed to run the toolkit. `ffmpeg`/`ffprobe` are stubbed during
+tests (real ffmpeg never runs and nothing touches the network).
+
+Run the full suite:
+
+```sh
+./tests/run.sh
+# or
+make test
+```
+
+`run.sh` runs the suite twice, once per implementation:
+
+- **macOS suite** — `iptv_toolkit_mac.sh` under the system bash 3.2, exercising
+  the `cm_*` string-shim channel-map path.
+- **Linux suite** — `iptv_toolkit.sh` under bash 4+, exercising the native
+  associative-array path.
+
+`iptv_toolkit.sh` uses bash-4-only syntax and cannot run under bash 3.2, so on a
+stock macOS host the Linux suite is **skipped** with a message unless a bash 4+
+is available. Install one with `brew install bash` (it lands at
+`/opt/homebrew/bin/bash` and leaves the system bash untouched), or point the
+runner at any bash 4+ with `IPTV_BASH4=/path/to/bash`.
+
+Run a single test file:
+
+```sh
+./tests/run.sh tests/url_building.bats
+```
+
+Optional lint (if `shellcheck` is installed):
+
+```sh
+make lint
+```
+
+### Test layout
+
+| Path | Purpose |
+|---|---|
+| `tests/run.sh` | Runner — drives both bash versions |
+| `tests/*.bats` | Test files (helpers, channel map, URL building, arg parsing, retry/merge, validate-config, check-channels, removal, completion) |
+| `tests/helpers/common.bash` | Shared setup (`source_toolkit`, `run_toolkit`, stubs) |
+| `tests/fixtures/iptv_configs.sh` | Fixture config with fake credentials (query + path styles) |
+| `tests/fixtures/iptv_configs_invalid.sh`, `tests/fixtures/iptv_configs_no_output.sh` | Deliberately broken configs for the `validate-config` tests |
+| `tests/stubs/ffmpeg`, `tests/stubs/ffprobe` | Fake binaries put on `PATH` during tests |
+| `tests/vendor/` | Vendored bats-core + bats-support + bats-assert |
+
+The test harness points the toolkit at the fixture config via the
+`IPTV_CONFIG_FILE` environment variable (which overrides the default
+`Settings/iptv_configs.sh`), and both scripts are written so that `source`-ing
+them defines functions only — the command dispatch runs solely when the script
+is executed directly.
 
 ## Synology NAS notes
 

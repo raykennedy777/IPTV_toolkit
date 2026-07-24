@@ -54,6 +54,35 @@ function Write-Log {
 # - Record catchup IPTV based on time of broadcast
 # - Download the same time period from multiple channels
 
+# Reduce a name to path-safe characters. Used for the config name that is
+# appended to output and log file names.
+function Get-SafeName {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    return ($Name -replace '[^a-zA-Z0-9._-]', '_')
+}
+
+# Build the output file name for a recording. The config name is appended last
+# so simultaneous recordings of the same channel from different providers land
+# in distinct files.
+function Get-OutputFileName {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Channel,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Timestamp,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ConfigName
+    )
+
+    return "${Channel}_${Timestamp}_$(Get-SafeName $ConfigName).ts"
+}
+
 function Remux-TSFileToMKV {
     param (
         [Parameter(Mandatory = $true)]
@@ -273,7 +302,7 @@ function Record-LiveIPTV {
         return
     }
 
-    $Script:LogFile = Join-Path $Script:LogDir "record_live_${Channel}_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    $Script:LogFile = Join-Path $Script:LogDir "record_live_${Channel}_$(Get-Date -Format 'yyyyMMdd_HHmmss')_$(Get-SafeName $Config).log"
     Write-Log INFO "Recording session started: $Channel"
 
     $startTime = $null
@@ -370,7 +399,7 @@ function Record-LiveIPTV {
 
     Write-Log INFO "URL being used: $url"
 
-    $outputPath = Join-Path (Join-Path $HOME "Videos") "${Channel}_$(Get-Date -Format 'yyyyMMdd_HHmm').ts"
+    $outputPath = Join-Path (Join-Path $HOME "Videos") (Get-OutputFileName -Channel $Channel -Timestamp (Get-Date -Format 'yyyyMMdd_HHmm') -ConfigName $Config)
     $quotedUrl = '"' + $url + '"'
     $quotedOut = '"' + $outputPath + '"'
     $mapArgs = if ($FirstAudioOnly) { "-map 0:a:0" } else { "-map 0:v? -map 0:a?" }
@@ -460,7 +489,7 @@ function Record-CatchupIPTV {
     }
 
     $sanitizedStart = $StartAt -replace '[^a-zA-Z0-9]', '_'
-    $Script:LogFile = Join-Path $Script:LogDir "record_catchup_${sanitizedStart}_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    $Script:LogFile = Join-Path $Script:LogDir "record_catchup_${sanitizedStart}_$(Get-Date -Format 'yyyyMMdd_HHmmss')_$(Get-SafeName $Config).log"
     Write-Log INFO "Catch-up recording session started: $StartAt"
 
     $providerZone = [System.TimeZoneInfo]::FindSystemTimeZoneById($conf.CatchupTimezone)
@@ -475,7 +504,7 @@ function Record-CatchupIPTV {
 
     foreach ($chan in $Channel) {
         $code = $conf.ChannelMap[$chan]
-        $outputPath = Join-Path $outputFolder "${chan}_${timestamp}.ts"
+        $outputPath = Join-Path $outputFolder (Get-OutputFileName -Channel $chan -Timestamp $timestamp -ConfigName $Config)
         $formatStyle = $conf.CatchupFormatStyle
         if (-not $formatStyle) { $formatStyle = "query" }  # Default fallback
 

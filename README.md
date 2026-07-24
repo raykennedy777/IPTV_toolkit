@@ -2,6 +2,8 @@
 
 PowerShell scripts for recording live and catch-up IPTV streams on Windows using ffmpeg. A bash version for Linux is also available — see [README_linux.md](README_linux.md).
 
+The bash scripts currently support several commands this one does not. [docs/parity.md](docs/parity.md) tracks exactly what each implementation supports.
+
 ## Features
 
 - **Interactive setup wizard** — generate a config from a live stream URL
@@ -107,7 +109,7 @@ Record-LiveIPTV -Config myprovider -Channel bbc_one -DurationMinutes 90 -StartAt
 Record-LiveIPTV -Config myprovider -Channel bbc_one -DurationMinutes 90 -DryRun
 ```
 
-Output files are saved to `~\Videos\` as `channelname_YYYYMMDD_HHmm.ts` (or `.mkv` after remux).
+Output files are saved to `~\Videos\` as `channelname_YYYYMMDD_HHmm_config.ts` (or `.mkv` after remux). The config name is appended so simultaneous recordings of the same channel from different providers don't collide.
 
 ### Record a catch-up stream
 
@@ -129,7 +131,7 @@ Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-0
 
 > Note: multiple channels are recorded sequentially (not in parallel) to stay within single-stream provider limits.
 
-> `-CustomDuration` sets the timeshift window (in seconds) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
+> `-CustomDuration` sets the timeshift window (in minutes) passed to the provider's catch-up URL. Increase it if recordings start mid-content or if your provider requires a larger buffer.
 
 ### Clean up completed scheduled tasks
 
@@ -146,6 +148,6 @@ If ffmpeg exits before the full duration is captured, the toolkit automatically 
 ## Logging
 
 Each recording run writes a timestamped log file to the `logs\` folder in the script directory:
-- `logs\record_live_{channel}_{timestamp}.log`
-- `logs\record_catchup_{startAt}_{timestamp}.log`
+- `logs\record_live_{channel}_{timestamp}_{config}.log`
+- `logs\record_catchup_{startAt}_{timestamp}_{config}.log`
 - `logs\remove_tasks_{timestamp}.log`

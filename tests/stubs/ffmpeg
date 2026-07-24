@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Fake ffmpeg for the bats suite. Never touches the network or runs real ffmpeg.
+#
+# Behavior:
+#   - Writes a small non-empty placeholder to the output path (the last argument)
+#     so the script's `[[ -s "$seg_file" ]]` non-empty check passes.
+#   - Honors `-t <secs>`: stashes the requested duration in a "<output>.dur"
+#     sidecar so the fake ffprobe can report it back to measure_duration.
+#   - Optional env hooks for tests:
+#       FFMPEG_STUB_LOG   append each full invocation (one per line) for asserts
+#       FFMPEG_STUB_FAIL  exit with this code instead of succeeding (retry path)
+#
+# The invocation is also echoed to stderr so black-box -dry-run style debugging
+# can see it if needed.
+
+args=("$@")
+
+if [[ -n "${FFMPEG_STUB_LOG:-}" ]]; then
+    printf '%s\n' "$*" >> "$FFMPEG_STUB_LOG"
+fi
+
+if [[ -n "${FFMPEG_STUB_FAIL:-}" ]]; then
+    exit "${FFMPEG_STUB_FAIL}"
+fi
+
+# The output path is always the final argument in this toolkit's ffmpeg calls.
+out="${args[$(( ${#args[@]} - 1 ))]}"
+
+# Capture a requested duration from -t, if present.
+dur=""
+i=0
+while (( i < ${#args[@]} )); do
+    if [[ "${args[$i]}" == "-t" ]]; then
+        dur="${args[$(( i + 1 ))]}"
+    fi
+    i=$(( i + 1 ))
+done
+
+if [[ -n "$out" ]]; then
+    mkdir -p "$(dirname "$out")" 2>/dev/null || true
+    printf 'FAKETS' > "$out"
+    [[ -n "$dur" ]] && printf '%s' "$dur" > "${out}.dur"
+fi
+
+exit 0
