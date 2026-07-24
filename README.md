@@ -107,7 +107,7 @@ Record-LiveIPTV -Config myprovider -Channel bbc_one -DurationMinutes 90 -StartAt
 Record-LiveIPTV -Config myprovider -Channel bbc_one -DurationMinutes 90 -DryRun
 ```
 
-Output files are saved to `~\Videos\` as `channelname_YYYYMMDD_HHmm.ts` (or `.mkv` after remux).
+Output files are saved to `~\Videos\` as `channelname_YYYYMMDD_HHmm_config.ts` (or `.mkv` after remux). The config name is appended so simultaneous recordings of the same channel from different providers don't collide.
 
 ### Record a catch-up stream
 
@@ -146,6 +146,6 @@ If ffmpeg exits before the full duration is captured, the toolkit automatically 
 ## Logging
 
 Each recording run writes a timestamped log file to the `logs\` folder in the script directory:
-- `logs\record_live_{channel}_{timestamp}.log`
-- `logs\record_catchup_{startAt}_{timestamp}.log`
+- `logs\record_live_{channel}_{timestamp}_{config}.log`
+- `logs\record_catchup_{startAt}_{timestamp}_{config}.log`
 - `logs\remove_tasks_{timestamp}.log`

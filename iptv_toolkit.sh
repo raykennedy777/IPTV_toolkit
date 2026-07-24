@@ -216,6 +216,20 @@ readonly -a _CATCHUP_ARGS=(
 # Core recording helpers
 # ---------------------------------------------------------------------------
 
+# Reduce a name to path-safe characters. Used for the config name that is
+# appended to output and log file names.
+sanitize_name() {
+    printf '%s' "${1//[^[:alnum:]._-]/_}"
+}
+
+# Build the output file name for a recording. The config name is appended last
+# so simultaneous recordings of the same channel from different providers land
+# in distinct files.
+output_file_name() {
+    local channel="$1" timestamp="$2" config="$3"
+    printf '%s_%s_%s.ts' "$channel" "$timestamp" "$(sanitize_name "$config")"
+}
+
 remux_ts_to_mkv() {
     local ts_file="$1"
     local mkv_file="${ts_file%.ts}.mkv"
@@ -444,7 +458,7 @@ record_live() {
     # Initialize log file
     local timestamp
     timestamp="$(date '+%Y%m%d_%H%M%S')"
-    LOG_FILE="${LOG_DIR}/record_live_${channel}_${timestamp}.log"
+    LOG_FILE="${LOG_DIR}/record_live_${channel}_${timestamp}_$(sanitize_name "$config").log"
 
     load_config "$config"
     [[ -v "CHANNEL_MAP[$channel]" ]] || die "Invalid channel '$channel'. Valid: ${!CHANNEL_MAP[*]}"
@@ -505,7 +519,7 @@ record_live() {
     log "INFO" "URL: $_live_url"
 
     mkdir -p "$OUTPUT_DIR"
-    local output_path="${OUTPUT_DIR}/${channel}_$(date '+%Y%m%d_%H%M').ts"
+    local output_path="${OUTPUT_DIR}/$(output_file_name "$channel" "$(date '+%Y%m%d_%H%M')" "$config")"
 
     local -a map_args=(-map "0:v?" -map "0:a:0")
     [[ "$_first_audio_only" == true ]] && map_args=(-map "0:a:0")
@@ -589,7 +603,7 @@ record_catchup() {
     # Initialize log file
     local timestamp
     timestamp="$(date '+%Y%m%d_%H%M%S')"
-    LOG_FILE="${LOG_DIR}/record_catchup_${start_at//[:,-]/_}_${timestamp}.log"
+    LOG_FILE="${LOG_DIR}/record_catchup_${start_at//[:,-]/_}_${timestamp}_$(sanitize_name "$config").log"
 
     load_config "$config"
     for chan in "${channels[@]}"; do
@@ -614,7 +628,7 @@ record_catchup() {
 
     for chan in "${channels[@]}"; do
         _catchup_code="${CHANNEL_MAP[$chan]}"
-        local output_path="${OUTPUT_DIR}/${chan}_${timestamp}.ts"
+        local output_path="${OUTPUT_DIR}/$(output_file_name "$chan" "$timestamp" "$config")"
         local url
         url="$(_catchup_stream_url "$_catchup_code" "$encoded_start" "$_catchup_custom_duration")"
 

@@ -50,6 +50,32 @@ setup() {
     assert_output "2024-12-31:19-00"
 }
 
+@test "sanitize_name keeps safe characters and replaces the rest" {
+    run sanitize_name "prov-1.a_B"
+    assert_output "prov-1.a_B"
+}
+
+@test "sanitize_name replaces path separators and spaces" {
+    run sanitize_name "my prov/1"
+    assert_output "my_prov_1"
+}
+
+@test "output_file_name appends the config name after the timestamp" {
+    run output_file_name "bbc_one" "20250101_1200" "provider_a"
+    assert_success
+    assert_output "bbc_one_20250101_1200_provider_a.ts"
+}
+
+@test "output_file_name distinguishes configs for the same channel and time" {
+    run output_file_name "bbc_one" "20250101_1200" "provider_b"
+    assert_output "bbc_one_20250101_1200_provider_b.ts"
+}
+
+@test "output_file_name sanitizes path-unsafe characters in the config name" {
+    run output_file_name "bbc_one" "20250101_1200" "my prov/1"
+    assert_output "bbc_one_20250101_1200_my_prov_1.ts"
+}
+
 @test "measure_duration reports the probed stream duration" {
     local f="$BATS_TEST_TMPDIR/seg.ts"
     printf 'x' > "$f"

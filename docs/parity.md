@@ -79,6 +79,7 @@ batch.
 | ffmpeg / ffprobe binary override | ✅ `FFMPEG_BIN` / `FFPROBE_BIN` from config (default `ffmpeg`/`ffprobe`) | ✅ same, **plus `_resolve_bin` fallback**: if the configured binary is missing on the host it falls back to `ffmpeg`/`ffprobe` | ❌ `deferred` — `ffmpeg`/`ffprobe` are hardcoded string literals in every invocation; no override |
 | Default live audio mapping | 🟡 `-map 0:v? -map 0:a:0` (first audio track) | 🟡 `-map 0:v? -map 0:a:0` (first audio track) | 🟡 `-map 0:v? -map 0:a?` (**all** audio tracks) — differs from bash |
 | Output directory | 🟡 `$OUTPUT_DIR` from config | 🟡 `$OUTPUT_DIR` from config | 🟡 hardcoded `$HOME/Videos` — not configurable |
+| Output / log file naming | ✅ `<channel>_<YYYYMMDD>_<HHmm>_<config>.ts` and `record_*_..._<config>.log` via `output_file_name` / `sanitize_name` — config suffix avoids collisions between simultaneous recordings of the same channel | ✅ same helpers, same names | ✅ `Get-OutputFileName` / `Get-SafeName`, same naming |
 | Fast load-guard before record | ✅ `_load_guard` — required fields, format style, non-empty map, OUTPUT_DIR | ✅ same | ❌ `deferred` |
 | Shared stream URL builders | ✅ `_live_stream_url` / `_catchup_stream_url` (record + check-channels) | ✅ same | ❌ `deferred` — URLs built inline |
 | Shell completion (bash + zsh) | ✅ `completions/*` — dynamic, registered for both basenames | ✅ same (shared files) | ❌ `deferred` |

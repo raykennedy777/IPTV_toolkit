@@ -38,3 +38,15 @@ setup() {
     assert_success
     assert_output --partial "stream=1001&start=2026-07-01:14-00&duration=600"
 }
+
+@test "record-live output file name ends with the config name" {
+    run_toolkit record-live -config test_query -channel bbc_one -duration-minutes 5 -dry-run
+    assert_success
+    assert_output --regexp "/bbc_one_[0-9]{8}_[0-9]{4}_test_query\\.ts"
+}
+
+@test "record-catchup output file name ends with the config name" {
+    run_toolkit record-catchup -config test_path -channel cnn -start-at 2026-07-01:12-00 -duration-minutes 5 -dry-run
+    assert_success
+    assert_output --regexp "/cnn_[0-9]{8}_[0-9]{4}_test_path\\.ts"
+}
