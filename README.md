@@ -2,6 +2,8 @@
 
 PowerShell scripts for recording live and catch-up IPTV streams on Windows using ffmpeg. A bash version for Linux is also available — see [README_linux.md](README_linux.md).
 
+The bash scripts currently support several commands this one does not. [docs/parity.md](docs/parity.md) tracks exactly what each implementation supports.
+
 ## Features
 
 - **Interactive setup wizard** — generate a config from a live stream URL
@@ -123,7 +125,7 @@ Record-CatchupIPTV -Config myprovider -Channel bbc_one,itv1 -StartAt "2025-06-01
 # Dry run
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90 -DryRun
 
-# Custom timeshift window (default: 300 minutes)
+# Custom timeshift window (default: 300 seconds)
 Record-CatchupIPTV -Config myprovider -Channel bbc_one -StartAt "2025-06-01:20-00" -DurationMinutes 90 -CustomDuration 600
 ```
 

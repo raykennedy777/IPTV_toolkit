@@ -3,6 +3,10 @@
 Bash script for recording live and catch-up IPTV streams on Linux using ffmpeg.
 Designed for headless use on a Synology NAS but works on any Linux system.
 
+`iptv_toolkit.sh` targets bash 4+; `iptv_toolkit_mac.sh` is the bash 3.2 port for
+macOS and shares the same config file. [docs/parity.md](docs/parity.md) tracks
+what each implementation (Linux, macOS, PowerShell) supports.
+
 ## Requirements
 
 - bash 4+
@@ -191,7 +195,7 @@ Catch-up records a past broadcast by its original air time. `-start-at` uses you
 # Dry run
 ./iptv_toolkit.sh record-catchup -config myprovider -channel bbc_one -start-at "2026-03-01:20-00" -duration-minutes 90 -dry-run
 
-# Custom timeshift window (default: 300 minutes)
+# Custom timeshift window (default: 300 seconds)
 ./iptv_toolkit.sh record-catchup -config myprovider -channel bbc_one -start-at "2026-03-01:20-00" -duration-minutes 90 -custom-duration 600
 ```
 
@@ -314,9 +318,10 @@ make lint
 | Path | Purpose |
 |---|---|
 | `tests/run.sh` | Runner — drives both bash versions |
-| `tests/*.bats` | Test files (helpers, channel map, URL building, arg parsing, retry/merge) |
+| `tests/*.bats` | Test files (helpers, channel map, URL building, arg parsing, retry/merge, validate-config, check-channels, removal, completion) |
 | `tests/helpers/common.bash` | Shared setup (`source_toolkit`, `run_toolkit`, stubs) |
 | `tests/fixtures/iptv_configs.sh` | Fixture config with fake credentials (query + path styles) |
+| `tests/fixtures/iptv_configs_invalid.sh`, `tests/fixtures/iptv_configs_no_output.sh` | Deliberately broken configs for the `validate-config` tests |
 | `tests/stubs/ffmpeg`, `tests/stubs/ffprobe` | Fake binaries put on `PATH` during tests |
 | `tests/vendor/` | Vendored bats-core + bats-support + bats-assert |
 
